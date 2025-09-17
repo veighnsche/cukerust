@@ -253,6 +253,45 @@ Execution
 
 This repository currently tracks the spec for the extension. Implementation details, build instructions, and contribution guidelines will be added as the codebase is introduced.
 
+## Quickstart
+
+Prereqs
+
+- Node 20+, npm
+- Rust (stable) via `rustup`
+- `wasm-pack` (for building the WASM wrapper)
+
+Build & test
+
+1) Extension (build WASM + TS)
+
+```
+cd extension
+npm ci
+npm run build
+```
+
+2) Rust tests (workspace)
+
+```
+cd rust
+cargo test --workspace
+```
+
+3) Extension-host tests
+
+```
+cd extension
+npm run test:int
+```
+
+Try it
+
+- Open the repository in VS Code.
+- Open the sample fixture at `extension/test-fixtures/basic/features/sample.feature`.
+- Run the command: `CukeRust: Rebuild Step Index`.
+- Hover, completion, diagnostics, go-to-definition, and a Run CodeLens should be available.
+
 ## Rust development methodology (BDD/TDD via Gherkin)
 
 - The Rust core (`cukerust_core`) uses a BDD‑first TDD workflow with Gherkin features executed via the `cucumber` crate.

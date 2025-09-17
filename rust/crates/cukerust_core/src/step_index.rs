@@ -1,7 +1,7 @@
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum StepKind {
     Given,
     When,
@@ -82,9 +82,9 @@ impl StepIndex {
 pub fn extract_step_index_from_files(files: &[SourceFile]) -> StepIndex {
     let mut out: Vec<StepEntry> = Vec::new();
 
-    // Pre-compile lightweight detectors for builder/macro lines.
-    let builder_re = Regex::new("\\.(given|when|then)\\s*\\(\\s*(?P<lit>r#*\\\".*?\\\"#*|\\\"([^\\\"\\\\]|\\\\.)*\\\")").unwrap();
-    let macro_re = Regex::new("\\b(given|when|then)!\\s*\\(\\s*(?P<lit>r#*\\\".*?\\\"#*|\\\"([^\\\"\\\\]|\\\\.)*\\\")").unwrap();
+    // Pre-compile lightweight detectors for builder/macro lines (only detect call and kind).
+    let builder_re = Regex::new("\\.(given|when|then)\\s*\\(").unwrap();
+    let macro_re = Regex::new("\\b(given|when|then)!\\s*\\(").unwrap();
     let attr_re = Regex::new("#\\[\\s*(given|when|then)[^\\]]*\\]").unwrap();
 
     for sf in files {
@@ -93,36 +93,42 @@ pub fn extract_step_index_from_files(files: &[SourceFile]) -> StepIndex {
             // Builder chains: .given/.when/.then(r"…")
             if let Some(cap) = builder_re.captures(line) {
                 let kind = kind_from_lower(cap.get(1).map(|m| m.as_str()).unwrap_or(""));
-                if let Some(regex_text) = extract_first_string_literal(cap.name("lit").map(|m| m.as_str()).unwrap_or("")) {
-                    out.push(StepEntry {
-                        kind,
-                        regex: regex_text,
-                        file: sf.path.clone(),
-                        line: lineno,
-                        function: None,
-                        captures: None,
-                        tags: None,
-                        notes: None,
-                    });
-                    continue;
+                if let Some(open) = line.find('(') {
+                    let after = &line[open + 1..];
+                    if let Some(regex_text) = extract_first_string_literal(after) {
+                        out.push(StepEntry {
+                            kind,
+                            regex: regex_text,
+                            file: sf.path.clone(),
+                            line: lineno,
+                            function: None,
+                            captures: None,
+                            tags: None,
+                            notes: None,
+                        });
+                        continue;
+                    }
                 }
             }
 
             // Macros: given!/when!/then!(r"…", ...)
             if let Some(cap) = macro_re.captures(line) {
                 let kind = kind_from_lower(cap.get(1).map(|m| m.as_str()).unwrap_or(""));
-                if let Some(regex_text) = extract_first_string_literal(cap.name("lit").map(|m| m.as_str()).unwrap_or("")) {
-                    out.push(StepEntry {
-                        kind,
-                        regex: regex_text,
-                        file: sf.path.clone(),
-                        line: lineno,
-                        function: None,
-                        captures: None,
-                        tags: None,
-                        notes: None,
-                    });
-                    continue;
+                if let Some(open) = line.find('(') {
+                    let after = &line[open + 1..];
+                    if let Some(regex_text) = extract_first_string_literal(after) {
+                        out.push(StepEntry {
+                            kind,
+                            regex: regex_text,
+                            file: sf.path.clone(),
+                            line: lineno,
+                            function: None,
+                            captures: None,
+                            tags: None,
+                            notes: None,
+                        });
+                        continue;
+                    }
                 }
             }
 

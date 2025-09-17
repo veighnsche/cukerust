@@ -3,6 +3,10 @@ import { StepIndexManager } from './indexer';
 
 export function activate(context: vscode.ExtensionContext) {
   const manager = new StepIndexManager(context);
+  const status = vscode.window.createStatusBarItem('cukerust.mode', vscode.StatusBarAlignment.Left, 100);
+  status.name = 'CukeRust Mode';
+  status.tooltip = 'CukeRust discovery mode';
+  context.subscriptions.push(status);
 
   const disposable = vscode.commands.registerCommand('cukerust.rebuildIndex', async () => {
     await manager.rebuildAll();
@@ -51,6 +55,8 @@ export function activate(context: vscode.ExtensionContext) {
     for (const doc of vscode.workspace.textDocuments) {
       await manager.refreshDiagnostics(doc);
     }
+    manager.initWatchers();
+    refreshStatusBar(status);
   });
 
   // Diagnostics refresh hooks
@@ -59,6 +65,13 @@ export function activate(context: vscode.ExtensionContext) {
   );
   context.subscriptions.push(
     vscode.workspace.onDidChangeTextDocument((e) => manager.refreshDiagnostics(e.document)),
+  );
+
+  // Config/status updates
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration('cukerust')) refreshStatusBar(status);
+    }),
   );
 
   // Go-to-definition
@@ -148,15 +161,78 @@ export function activate(context: vscode.ExtensionContext) {
       },
     }),
   );
+
+  // CodeLens for running scenarios
+  context.subscriptions.push(
+    vscode.languages.registerCodeLensProvider({ language: 'feature' }, new ScenarioCodeLensProvider()),
+  );
+
+  // Run Scenario command
+  context.subscriptions.push(
+    vscode.commands.registerCommand('cukerust.runScenario', async (args?: { featurePath?: string; scenarioName?: string }) => {
+      const editor = vscode.window.activeTextEditor;
+      const doc = editor?.document;
+      const featurePath = args?.featurePath ?? doc?.uri.fsPath;
+      const scenarioName = args?.scenarioName ?? (editor ? extractScenarioName(editor.document, editor.selection.active.line) : undefined);
+      if (!featurePath || !scenarioName) {
+        vscode.window.showWarningMessage('CukeRust: No scenario context to run');
+        return;
+      }
+      const folder = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(featurePath));
+      const template = vscode.workspace.getConfiguration('cukerust', folder).get<string>('run.template', 'echo Running ${scenarioName} in ${featurePath}');
+      const cmd = template
+        .replaceAll('${featurePath}', shellQuote(featurePath))
+        .replaceAll('${scenarioName}', shellQuote(scenarioName))
+        .replaceAll('${tags}', '');
+      const term = vscode.window.createTerminal({ name: 'CukeRust' });
+      term.show();
+      term.sendText(cmd);
+    }),
+  );
 }
 
 export function deactivate() {}
 
-function toSnippet(regex: string): string {
+export function toSnippet(regex: string): string {
   // Basic conversion: (\d+) -> ${1:number}; (.+) -> ${1:value}
   let idx = 1;
   return regex
     .replace(/\^|\$/g, '')
-    .replace(/\\d\+/g, () => `\${{${idx++}:number}}`)
-    .replace(/\(\.\+\)/g, () => `\${{${idx++}:value}}`);
+    .replace(/\\d\+/g, () => `\${${idx++}:number}`)
+    .replace(/\(\.\+\)/g, () => `\${${idx++}:value}`);
+}
+
+class ScenarioCodeLensProvider implements vscode.CodeLensProvider {
+  provideCodeLenses(doc: vscode.TextDocument): vscode.ProviderResult<vscode.CodeLens[]> {
+    const lenses: vscode.CodeLens[] = [];
+    for (let i = 0; i < doc.lineCount; i++) {
+      const text = doc.lineAt(i).text;
+      const m = /^\s*Scenario:\s*(.+)$/.exec(text);
+      if (m) {
+        const scenarioName = m[1].trim();
+        const range = new vscode.Range(i, 0, i, text.length);
+        lenses.push(new vscode.CodeLens(range, {
+          command: 'cukerust.runScenario',
+          title: 'Run Scenario',
+          arguments: [{ featurePath: doc.uri.fsPath, scenarioName }],
+        }));
+      }
+    }
+    return lenses;
+  }
+}
+
+function extractScenarioName(doc: vscode.TextDocument, line: number): string | undefined {
+  for (let i = line; i >= 0; i--) {
+    const m = /^\s*Scenario:\s*(.+)$/.exec(doc.lineAt(i).text);
+    if (m) return m[1].trim();
+  }
+  return undefined;
+}
+
+function shellQuote(s: string): string {
+  // Basic POSIX-like quoting
+  if (s === '') return "''";
+  if (/^[A-Za-z0-9_@%+=:,./-]+$/.test(s)) return s; // safe
+  return `'${s.replaceAll("'", `'"'"'`)}'`;
 }

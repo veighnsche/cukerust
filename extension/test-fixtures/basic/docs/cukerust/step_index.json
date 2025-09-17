@@ -1,0 +1,13 @@
+{
+  "steps": [
+    { "kind": "Given", "regex": "^I have (\\d+) cukes$", "file": "src/steps.rs", "line": 1 },
+    { "kind": "When", "regex": "^I eat (\\d+)$", "file": "src/steps.rs", "line": 2 },
+    { "kind": "Then", "regex": "^done$", "file": "src/steps.rs", "line": 3 }
+  ],
+  "stats": {
+    "total": 3,
+    "by_kind": { "Given": 1, "When": 1, "Then": 1 },
+    "ambiguous": 0,
+    "generated_at": "2100-01-01T00:00:00Z"
+  }
+}

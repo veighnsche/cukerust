@@ -1,14 +1,11 @@
 use wasm_bindgen::prelude::*;
 use cukerust_core::step_index as core;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
 struct Input {
     files: Vec<core::SourceFile>,
 }
-
-#[derive(Debug, Serialize)]
-struct Output(core::StepIndex);
 
 /// JSON FFI: accepts `{ files: Array<{ path, text }>}\n` and returns StepIndex JSON.
 #[wasm_bindgen]

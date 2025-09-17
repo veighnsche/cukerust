@@ -62,7 +62,7 @@ async fn a_file_with_macro_when(world: &mut CoreWorld) {
 async fn a_file_with_raw_string(world: &mut CoreWorld) {
     world.files.push(SourceFile {
         path: "steps_raw.rs".into(),
-        text: "registry.when(r#\"^a \\"quoted\\" word$\"#);".into(),
+        text: r##"registry.when(r#"^a "quoted" word$"#);"##.into(),
     });
 }
 
@@ -70,7 +70,7 @@ async fn a_file_with_raw_string(world: &mut CoreWorld) {
 async fn a_file_with_raw_string_multi(world: &mut CoreWorld) {
     world.files.push(SourceFile {
         path: "steps_raw_multi.rs".into(),
-        text: "registry.when(r###\"^multi # hash$\"###);".into(),
+        text: r####"registry.when(r###"^multi # hash$"###);"####.into(),
     });
 }
 
@@ -92,4 +92,10 @@ async fn counts_by_kind(world: &mut CoreWorld) {
     assert!(idx.stats.by_kind.given >= 1);
     assert!(idx.stats.by_kind.when >= 1);
     assert!(idx.stats.by_kind.then >= 1);
+}
+
+#[then(regex = r"^the index ambiguous count is (\d+)$")]
+async fn ambiguous_count(world: &mut CoreWorld, n: usize) {
+    let idx = world.index.as_ref().expect("index built");
+    assert_eq!(idx.stats.ambiguous, n);
 }

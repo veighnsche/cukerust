@@ -5,6 +5,7 @@ export class StepIndexManager {
   private indexes = new Map<string, StepIndex>(); // key: workspace folder fsPath
   private wasmModule: any | null = null;
   private diag = vscode.languages.createDiagnosticCollection('cukerust');
+  private rebuildTimers = new Map<string, NodeJS.Timeout>();
 
   constructor(private context: vscode.ExtensionContext) {}
 
@@ -38,7 +39,10 @@ export class StepIndexManager {
     // Static scan
     const wasm = await this.ensureWasm();
     const include = new vscode.RelativePattern(folder, '**/*.rs');
-    const rustFiles = await vscode.workspace.findFiles(include, '**/target/**', 5000);
+    const ignore = vscode.workspace.getConfiguration('cukerust', folder).get<string[]>('ignoreGlobs', []);
+    const excludes = ['**/target/**', ...ignore];
+    const exclude = excludes.length > 1 ? `{${excludes.join(',')}}` : excludes[0];
+    const rustFiles = await vscode.workspace.findFiles(include, exclude, 5000);
     const inputs: SourceFileInput[] = [];
     for (const uri of rustFiles) {
       try {
@@ -146,12 +150,23 @@ export class StepIndexManager {
   matchStep(steps: StepEntry[], kind: 'Given' | 'When' | 'Then', body: string): StepEntry[] {
     const norm = body.trim();
     const results: StepEntry[] = [];
+    const folder = vscode.workspace.getWorkspaceFolder(vscode.window.activeTextEditor?.document?.uri ?? vscode.Uri.file(''));
+    const mode = vscode.workspace.getConfiguration('cukerust', folder ?? undefined).get<'anchored'|'smart'|'substring'>('regex.matchMode', 'smart');
     for (const s of steps) {
       if (s.kind !== kind) continue;
       try {
-        // Smart mode: if starts/ends with ^$, test full; otherwise implicit anchors
-        const anchored = s.regex.startsWith('^') || s.regex.endsWith('$');
-        const pattern = anchored ? s.regex : `^${s.regex}$`;
+        let pattern = s.regex;
+        if (mode === 'anchored') {
+          pattern = s.regex;
+          if (!pattern.startsWith('^')) pattern = '^' + pattern;
+          if (!pattern.endsWith('$')) pattern = pattern + '$';
+        } else if (mode === 'smart') {
+          const anchored = s.regex.startsWith('^') || s.regex.endsWith('$');
+          pattern = anchored ? s.regex : `^${s.regex}$`;
+        } else {
+          // substring
+          pattern = s.regex;
+        }
         const re = new RegExp(pattern);
         if (re.test(norm)) results.push(s);
       } catch {
@@ -159,5 +174,32 @@ export class StepIndexManager {
       }
     }
     return results;
+  }
+
+  // Watchers to debounce rebuilds on Rust file changes
+  initWatchers() {
+    const folders = vscode.workspace.workspaceFolders ?? [];
+    for (const f of folders) {
+      const pattern = new vscode.RelativePattern(f, '**/*.rs');
+      const watcher = vscode.workspace.createFileSystemWatcher(pattern);
+      const schedule = () => {
+        const key = f.uri.fsPath;
+        const prev = this.rebuildTimers.get(key);
+        if (prev) clearTimeout(prev);
+        const t = setTimeout(() => { this.rebuildForFolder(f).then(() => {
+          // refresh diagnostics for open feature docs under this folder
+          for (const doc of vscode.workspace.textDocuments) {
+            if (vscode.workspace.getWorkspaceFolder(doc.uri)?.uri.fsPath === key) {
+              this.refreshDiagnostics(doc);
+            }
+          }
+        }); }, 500);
+        this.rebuildTimers.set(key, t);
+      };
+      watcher.onDidCreate(schedule, this, this.context.subscriptions);
+      watcher.onDidChange(schedule, this, this.context.subscriptions);
+      watcher.onDidDelete(schedule, this, this.context.subscriptions);
+      this.context.subscriptions.push(watcher);
+    }
   }
 }

@@ -16,9 +16,17 @@
   "activationEvents": [
     "onLanguage:feature",
     "onCommand:cukerust.rebuildIndex",
-    "onCommand:cukerust.dev.extractIndex"
+    "onCommand:cukerust.dev.extractIndex",
+    "onCommand:cukerust.runScenario"
   ],
   "contributes": {
+    "languages": [
+      {
+        "id": "feature",
+        "aliases": ["Gherkin", "feature"],
+        "extensions": [".feature"]
+      }
+    ],
     "commands": [
       {
         "command": "cukerust.rebuildIndex",
@@ -27,6 +35,10 @@
       {
         "command": "cukerust.dev.extractIndex",
         "title": "CukeRust: Dev — Extract Step Index (Fixture)"
+      },
+      {
+        "command": "cukerust.runScenario",
+        "title": "CukeRust: Run Scenario"
       }
     ],
     "configuration": {
@@ -79,13 +91,18 @@
           "type": "boolean",
           "default": true,
           "description": "Show discovery mode and active root in status bar"
+        },
+        "cukerust.run.template": {
+          "type": "string",
+          "default": "echo Running ${scenarioName} in ${featurePath}",
+          "description": "Run command template with placeholders: ${featurePath}, ${scenarioName}, ${tags}"
         }
       }
     }
   },
   "scripts": {
     "build:wasm": "wasm-pack build ../rust/crates/cukerust_wasm --target nodejs --release --out-dir ./native/cukerust-wasm",
-    "build:ts": "tsup src/extension.ts --format=cjs --dts --out-dir out --external:vscode",
+    "build:ts": "tsup src/extension.ts src/test/runTest.ts src/test/suite/index.ts --format=cjs --dts --out-dir out --external:vscode",
     "build": "npm run build:wasm && npm run build:ts",
     "test": "vitest run",
     "test:int": "node ./out/test/runTest.js",
