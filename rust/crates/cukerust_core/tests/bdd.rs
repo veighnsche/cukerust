@@ -11,7 +11,16 @@ mod steps;
 
 #[tokio::main]
 async fn main() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let features = match std::env::var("CUKERUST_BDD_FEATURE_PATH").ok() {
+        Some(p) => {
+            let pb = PathBuf::from(p);
+            if pb.is_absolute() { pb } else { root.join(pb) }
+        }
+        None => root.join("features"),
+    };
     CoreWorld::cucumber()
-        .run_and_exit(PathBuf::from("features"))
+        .fail_on_skipped()
+        .run_and_exit(features)
         .await;
 }
