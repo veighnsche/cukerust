@@ -1,0 +1,5 @@
+node_modules/
+out/
+*.vsix
+# WASM build output kept in repo as an asset; ignore intermediate build artifacts
+native/cukerust-wasm/.gitignore

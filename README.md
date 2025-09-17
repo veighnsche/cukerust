@@ -255,4 +255,9 @@ This repository currently tracks the spec for the extension. Implementation deta
 
 ## License
 
-TBD.
+Dual-licensed under either of:
+
+- Apache License, Version 2.0 (see `LICENSE-APACHE`)
+- MIT License (see `LICENSE-MIT`)
+
+You may choose either license at your option.

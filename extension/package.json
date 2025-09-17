@@ -1,0 +1,41 @@
+{
+  "name": "@cukerust/extension",
+  "displayName": "CukeRust",
+  "description": "Zero‑config Gherkin × Rust BDD for VS Code",
+  "version": "0.0.0",
+  "private": true,
+  "publisher": "your-publisher",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/your-org/cukerust.git"
+  },
+  "engines": { "vscode": "^1.92.0" },
+  "categories": ["Other"],
+  "main": "./out/extension.js",
+  "activationEvents": ["onLanguage:feature", "onCommand:cukerust.rebuildIndex"],
+  "contributes": {
+    "commands": [
+      {
+        "command": "cukerust.rebuildIndex",
+        "title": "CukeRust: Rebuild Step Index"
+      }
+    ]
+  },
+  "scripts": {
+    "build:wasm": "wasm-pack build ../rust/crates/cukerust_wasm --target nodejs --release --out-dir ./native/cukerust-wasm",
+    "build:ts": "tsup src/extension.ts --format=cjs --dts --out-dir out --external:vscode",
+    "build": "npm run build:wasm && npm run build:ts",
+    "test": "echo 'No tests yet'",
+    "test:int": "echo 'No integration tests yet'",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "tsup": "^8.0.0",
+    "typescript": "^5.6.2",
+    "@types/node": "^20.14.2",
+    "@types/vscode": "^1.92.0",
+    "@vscode/vsce": "^3.0.0"
+  },
+  "files": ["out/**", "native/**"]
+}

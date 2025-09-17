@@ -1,6 +1,6 @@
 # Testing VS Code Extensions (TypeScript + Rust)
 
-This guide covers unit, integration, and end‑to‑end testing for a VS Code extension with a TypeScript host and Rust components (WASM/N‑API/CLI).
+This guide covers unit, integration, and end‑to‑end testing for a VS Code extension with a TypeScript host and a Rust (WASM) component.
 
 ## Test layers
 
@@ -17,7 +17,6 @@ Recommended stack
 - Vitest + tsconfig paths + c8 for coverage.
 
 Example scripts (root or package)
-
 ```json
 {
   "devDependencies": {
@@ -37,15 +36,14 @@ Example scripts (root or package)
 Use `@vscode/test-electron` to download VS Code and run tests inside the extension host.
 
 Install
-
 ```bash
-pnpm add -D @vscode/test-electron mocha @types/mocha
+cd extension
+npm i -D @vscode/test-electron mocha @types/mocha glob
 ```
 
 Structure
-
 ```
-packages/extension/
+extension/
   src/
   out/
   test/
@@ -57,7 +55,6 @@ packages/extension/
 ```
 
 Minimal runner (`test/runTest.ts`)
-
 ```ts
 import * as path from 'node:path';
 import { runTests } from '@vscode/test-electron';
@@ -75,7 +72,6 @@ main().catch((err) => {
 ```
 
 Mocha suite bootstrap (`test/suite/index.ts`)
-
 ```ts
 import * as path from 'node:path';
 import * as Mocha from 'mocha';
@@ -103,7 +99,6 @@ export function run(): Promise<void> {
 ```
 
 Example test (`test/suite/extension.test.ts`)
-
 ```ts
 import * as assert from 'node:assert';
 import * as vscode from 'vscode';
@@ -117,38 +112,33 @@ describe('Extension activation', () => {
 });
 ```
 
-Scripts (package `packages/extension/package.json`)
-
+Scripts (extension/package.json)
 ```json
 {
   "scripts": {
-    "pretest:int": "pnpm -w build", // ensure extension is built
+    "pretest:int": "npm run build", // ensure extension is built
     "test:int": "node ./out/test/runTest.js"
   }
 }
 ```
 
 Fixtures
-
 - Use a `test-fixtures/` workspace with sample `*.feature` and Rust files.
 - Launch tests with `workspaceFolder` pointing to the fixture path.
 
 ## UI/E2E tests (optional)
 
 Options
-
 - Playwright launching Code via `@vscode/test-electron` executable.
 - `vscode-extension-tester` for a higher‑level API.
 
 Use cases
-
 - Verify diagnostics appear, CodeLens commands, and go‑to‑definition behavior within a real editor UI.
 
 ## Testing Rust components
 
 - Pure Rust: `cargo test --workspace`.
 - WASM: `wasm-pack test --node` or test via TS importing the built WASM.
-- N‑API: test via `node` + mocha/vitest; also run `cargo test` for internal logic.
 
 ## Coverage
 
@@ -157,8 +147,7 @@ Use cases
 
 ## Continuous Integration (GitHub Actions)
 
-Matrix example (TS + Extension Host)
-
+Matrix example (TS + Extension Host + Rust)
 ```yaml
 name: ci
 on: [push, pull_request]
@@ -172,14 +161,20 @@ jobs:
         node: [20]
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with: { version: 9 }
       - uses: actions/setup-node@v4
-        with: { node-version: ${{ matrix.node }}, cache: 'pnpm' }
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm -w build
-      - run: pnpm -w test
-      - run: pnpm --filter @cukerust/extension test:int
+        with: { node-version: ${{ matrix.node }} }
+      - name: Install deps
+        working-directory: extension
+        run: npm ci
+      - name: Build extension
+        working-directory: extension
+        run: npm run build
+      - name: Unit tests
+        working-directory: extension
+        run: npm test
+      - name: Extension-host tests
+        working-directory: extension
+        run: npm run test:int
 
   rust-tests:
     runs-on: ubuntu-latest
@@ -188,8 +183,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test --workspace --all-features --locked
 ```
-
-If using N‑API prebuilds, add jobs to build artifacts for each OS/arch using `@napi-rs/cli` and upload them before packaging the VSIX.
 
 ## Debugging tests locally
 

@@ -1,15 +1,14 @@
 # Hybrid TypeScript + Rust VS Code Extension (CukeRust)
 
-This guide explains how to build a VS Code extension where the extension host code is TypeScript and performance‑critical logic is implemented in Rust. It compares three integration strategies (WebAssembly, N‑API native addon, CLI child process), recommends a default for CukeRust, and outlines build and packaging steps for each.
+This guide explains how to build a VS Code extension where the extension host code is TypeScript and performance‑critical logic is implemented in Rust. It focuses on the WebAssembly integration strategy and outlines build and packaging steps for it.
 
 ## Goals
 
 - Keep the extension zero‑config and read‑only by default.
 - Make the Rust component portable across OS/arch without install friction.
 - Keep distribution via VSIX and Marketplace simple and predictable.
-- Leave room to switch strategies if performance requirements change.
 
-## Integration strategies
+## Integration strategy (WASM only)
 
 ### 1) Rust → WebAssembly (Node target)
 
@@ -66,7 +65,7 @@ Minimal blueprint
 - Build command (from crate dir):
 
   ```bash
-  wasm-pack build --target nodejs --release --out-dir ../../packages/extension/native/cukerust-wasm
+  wasm-pack build --target nodejs --release --out-dir ../../../extension/native/cukerust-wasm
   ```
 
 - TypeScript usage (extension host):
@@ -82,58 +81,9 @@ Packaging notes
 - Ensure the `.wasm` and glue JS are included by your bundler and VSIX. Mark them as assets (don’t tree‑shake out).
 - If you bundle with esbuild/tsup, configure `external` or asset loaders for `.wasm`.
 
-### 2) Rust → N‑API native addon (via `napi-rs`)
+### Out of scope integrations
 
-- Build a Node native addon using [`napi-rs`](https://napi.rs/) and ship prebuilt `.node` binaries per OS/arch.
-
-Pros
-
-- Best raw performance and seamless access to Node types.
-- Mature tooling (`@napi-rs/cli`) for building and publishing prebuilds.
-
-Cons
-
-- Distribution complexity: the VSIX must embed multiple prebuilt binaries (win/mac/linux, arm/x64). You can’t compile on the user’s machine during extension install.
-
-Minimal blueprint
-
-- Rust crate using `napi`:
-
-  ```toml
-  [lib]
-  crate-type = ["cdylib"]
-
-  [dependencies]
-  napi = { version = "3", features = ["napi8"] }
-  napi-derive = "3"
-  regex = "1"
-  ```
-
-- Expose functions with `#[napi]` and build via `@napi-rs/cli`.
-- Publish or copy the prebuilt artifacts into the extension before packaging.
-
-Packaging notes
-
-- Use CI to create prebuilds for all supported targets, then include them in `files` inside the extension’s `package.json`.
-- At runtime, pick the correct binary with `process.platform` and `process.arch` or rely on napi’s loader.
-
-### 3) Rust → CLI child process
-
-- Build a Rust binary and call it via `child_process.spawn` from the extension. Communicate via JSON over stdio.
-
-Pros
-
-- Simple integration and isolation of failures/crashes.
-- Flexible versioning (can point to a repo/tool the user already has installed).
-
-Cons
-
-- Installation frictions: shipping per‑platform binaries or requiring Rust on the user’s machine.
-- Updating the binary outside VSIX lifecycle is tricky.
-
-Recommended usage
-
-- Keep as an optional power‑user path. Not the default for Marketplace distribution.
+At this stage, only the WebAssembly path is supported. N‑API and CLI strategies are deliberately out of scope.
 
 ## Recommendation for CukeRust
 
@@ -141,43 +91,39 @@ Recommended usage
 - Architecture split:
   - TypeScript: scanning, globbing, workspace integration, VS Code UI (diagnostics, hovers, completion, commands).
   - Rust (WASM): CPU‑bound parsing/matching/normalization logic.
-- Fallback option: retain the ability to swap the WASM parser with an N‑API addon later if profiling shows the need.
 
-## Project layout (hybrid)
+## Project layout (single TS package + Rust workspace)
 
 ```
 repo/
-  packages/
-    extension/               # VS Code extension (TypeScript)
-      src/
-      native/
-        cukerust-wasm/       # wasm-pack output (JS + .wasm)
-      package.json
-    ts-shared/               # optional TS utilities shared across packages
+  extension/                 # VS Code extension (TypeScript)
+    src/
+    native/
+      cukerust-wasm/         # wasm-pack output (JS + .wasm)
+    test/
+    package.json
   rust/
     crates/
-      cukerust_wasm/         # Rust crate compiled to WASM
-      cukerust_core/         # optional pure Rust core reused by wasm and other bins
+      cukerust_core/         # pure Rust core reused by wrapper(s)
+      cukerust_wasm/         # Rust crate compiled to WASM (Node target)
     Cargo.toml               # cargo workspace
   .docs/
-  pnpm-workspace.yaml
-  turbo.json
 ```
 
 ## Build pipeline (WASM path)
 
 - Rust → WASM: `wasm-pack build --target nodejs --release`
 - TS build: `tsup` or `esbuild` for the extension host code
-- Turbo orchestration: define a `build:wasm` task that runs before `build:ts` for the extension package
+- Composite build: run `npm run build:wasm` before `npm run build:ts` in the extension package
 
-Example scripts
+Example scripts (extension/package.json)
 
 ```json
 {
   "scripts": {
-    "build:wasm": "cd rust/crates/cukerust_wasm && wasm-pack build --target nodejs --release --out-dir ../../../packages/extension/native/cukerust-wasm",
-    "build:ts": "tsup packages/extension/src/extension.ts --format=cjs --dts",
-    "build": "pnpm build:wasm && pnpm build:ts",
+    "build:wasm": "wasm-pack build ../../rust/crates/cukerust_wasm --target nodejs --release --out-dir ./native/cukerust-wasm",
+    "build:ts": "tsup src/extension.ts --format=cjs --dts --out-dir out",
+    "build": "npm run build:wasm && npm run build:ts",
     "package": "vsce package"
   }
 }
@@ -193,4 +139,4 @@ Example scripts
 
 - Minimize data crossing the TS⇄WASM boundary. Prefer batched JSON or binary buffers.
 - Keep WASM CPU‑bound; all I/O stays in TS.
-- Profile with `--inspect` and flamegraphs to decide if an N‑API switch is warranted later.
+- Profile with `--inspect` and flamegraphs to identify and tune CPU hotspots.

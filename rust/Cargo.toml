@@ -1,0 +1,6 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/cukerust_core",
+  "crates/cukerust_wasm",
+]

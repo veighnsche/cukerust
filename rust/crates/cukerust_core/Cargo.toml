@@ -1,0 +1,7 @@
+[package]
+name = "cukerust_core"
+version = "0.1.0"
+edition = "2021"
+
+author = ""
+license = "MIT OR Apache-2.0"

@@ -1,0 +1,15 @@
+# Normalize line endings
+* text=auto
+
+# Binary files
+*.wasm binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.svg text eol=lf
+
+# Treat generated wasm bundle as vendored for linguist stats
+extension/native/cukerust-wasm/** linguist-vendored
