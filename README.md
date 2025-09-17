@@ -253,6 +253,17 @@ Execution
 
 This repository currently tracks the spec for the extension. Implementation details, build instructions, and contribution guidelines will be added as the codebase is introduced.
 
+## Rust development methodology (BDD/TDD via Gherkin)
+
+- The Rust core (`cukerust_core`) uses a BDD‑first TDD workflow with Gherkin features executed via the `cucumber` crate.
+- Directory layout:
+  - `rust/crates/cukerust_core/features/**/*.feature`
+  - `rust/crates/cukerust_core/tests/bdd.rs` — cucumber test harness (tokio async)
+- Commands:
+  - Run the BDD harness only: `cargo test -p cukerust_core --test bdd`
+  - Run all Rust tests: `cargo test --workspace`
+- See the detailed spec at `.specs/01_rust_bdd_tdd.md`.
+
 ## License
 
 Dual-licensed under either of:

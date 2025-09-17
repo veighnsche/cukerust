@@ -5,3 +5,17 @@ edition = "2021"
 
 author = ""
 license = "MIT OR Apache-2.0"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+regex = "1"
+
+[dev-dependencies]
+cucumber = "0.21"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+[[test]]
+name = "bdd"
+path = "tests/bdd.rs"
+harness = false

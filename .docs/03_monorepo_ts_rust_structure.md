@@ -134,6 +134,17 @@ regex = "1"
 
 Include WASM output in `extension/native/cukerust-wasm/` so `files` picks it up for the VSIX.
 
+## Rust development methodology (BDD/TDD via cucumber)
+
+- We practice BDD-first TDD for the Rust core (`cukerust_core`) using Gherkin features and the [`cucumber`](https://crates.io/crates/cucumber) crate.
+- Directory layout:
+  - `rust/crates/cukerust_core/features/**/*.feature`
+  - `rust/crates/cukerust_core/tests/bdd.rs` — cucumber test harness (tokio async)
+- Dev-dependencies (in `cukerust_core`): `cucumber`, `tokio` (rt-multi-thread, macros)
+- Commands:
+  - Run only BDD harness: `cargo test -p cukerust_core --test bdd`
+  - Run all Rust tests: `cargo test --workspace`
+
 ## Scope note
 
 Only the WebAssembly integration is in scope. N‑API and CLI variants are out of scope for this repo.

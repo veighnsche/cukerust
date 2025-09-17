@@ -85,6 +85,17 @@ Stability contract
 - TS unit: Vitest.
 - Extension-host integration: `@vscode/test-electron` with fixtures (feature files + Rust sources) to verify diagnostics and go-to-def.
 
+### Rust BDD/TDD methodology (cukerust_core)
+
+- We use Gherkin BDD (feature files) executed by the `cucumber` crate to drive TDD for the core parsing logic.
+- Layout:
+  - `rust/crates/cukerust_core/features/**/*.feature`
+  - `rust/crates/cukerust_core/tests/bdd.rs` (tokio-based harness that runs cucumber)
+- Commands:
+  - `cargo test -p cukerust_core --test bdd` to run only BDD tests
+  - `cargo test --workspace` to run everything
+- Scope examples: attribute macros, builder chains, macros, raw string forms, ambiguity/undefined semantics.
+
 ## Versioning and release
 
 - Align crate versions with extension milestones to simplify traceability.

@@ -1,15 +1,162 @@
 import * as vscode from 'vscode';
+import { StepIndexManager } from './indexer';
 
 export function activate(context: vscode.ExtensionContext) {
+  const manager = new StepIndexManager(context);
+
   const disposable = vscode.commands.registerCommand('cukerust.rebuildIndex', async () => {
-    vscode.window.showInformationMessage('CukeRust: Rebuild Step Index (stub)');
-    // TODO: In future, call into WASM to rebuild from workspace files
-    // const wasm = await import('../native/cukerust-wasm');
-    // const result = wasm.analyze_steps(JSON.stringify({ files: [] }));
-    // console.log('WASM result', result);
+    await manager.rebuildAll();
+    // Refresh diagnostics for all open feature documents
+    for (const doc of vscode.workspace.textDocuments) {
+      await manager.refreshDiagnostics(doc);
+    }
+    vscode.window.showInformationMessage('CukeRust: Step Index rebuilt');
   });
 
   context.subscriptions.push(disposable);
+
+  const devCmd = vscode.commands.registerCommand('cukerust.dev.extractIndex', async () => {
+    try {
+      const wasm = await import('../native/cukerust-wasm');
+      const files = [
+        {
+          path: 'src/steps_attr.rs',
+          text: '#[then(regex = r"^done$")]\nfn ok() {}',
+        },
+        {
+          path: 'src/steps_builder.rs',
+          text: 'registry.given(r"^I have (\\d+) cukes$");',
+        },
+        {
+          path: 'src/steps_macro.rs',
+          text: 'given!(r"^start$", || {});',
+        },
+      ];
+      const input = JSON.stringify({ files });
+      const output = wasm.extract_step_index(input);
+      const idx = JSON.parse(output);
+      const total = idx?.stats?.total ?? idx?.steps?.length ?? 0;
+      console.log('CukeRust: Step Index', idx);
+      vscode.window.showInformationMessage(`CukeRust (Dev): Extracted ${total} steps from fixture`);
+    } catch (err) {
+      console.error('CukeRust dev extract error', err);
+      vscode.window.showErrorMessage(`CukeRust (Dev) error: ${String(err)}`);
+    }
+  });
+
+  context.subscriptions.push(devCmd);
+
+  // Rebuild on activation for current workspace
+  manager.rebuildAll().then(async () => {
+    for (const doc of vscode.workspace.textDocuments) {
+      await manager.refreshDiagnostics(doc);
+    }
+  });
+
+  // Diagnostics refresh hooks
+  context.subscriptions.push(
+    vscode.workspace.onDidOpenTextDocument((doc) => manager.refreshDiagnostics(doc)),
+  );
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeTextDocument((e) => manager.refreshDiagnostics(e.document)),
+  );
+
+  // Go-to-definition
+  context.subscriptions.push(
+    vscode.languages.registerDefinitionProvider({ language: 'feature' }, {
+      provideDefinition(doc, position) {
+        const folder = vscode.workspace.getWorkspaceFolder(doc.uri);
+        const index = manager.getIndex(folder);
+        if (!index) return undefined;
+        const line = doc.lineAt(position.line).text;
+        const m = /^(Given|When|Then|And|But)\s+(.+)$/.exec(line);
+        if (!m) return undefined;
+        let kind: 'Given' | 'When' | 'Then' = 'Given';
+        const keyword = m[1];
+        const body = m[2];
+        if (keyword === 'Given' || keyword === 'When' || keyword === 'Then') kind = keyword as any;
+        // simplistic: search backward for last explicit keyword
+        if (keyword === 'And' || keyword === 'But') {
+          for (let i = position.line - 1; i >= 0; i--) {
+            const l = doc.lineAt(i).text;
+            const mm = /^(Given|When|Then)\b/.exec(l);
+            if (mm) { kind = mm[1] as any; break; }
+          }
+        }
+        const matches = manager.matchStep(index.steps, kind, body);
+        if (matches.length === 0) return undefined;
+        const targets = matches.map((s) => {
+          const root = folder?.uri ?? vscode.Uri.file('/');
+          const target = vscode.Uri.joinPath(root, s.file);
+          const pos = new vscode.Position(Math.max(0, (s.line ?? 1) - 1), 0);
+          return new vscode.Location(target, pos);
+        });
+        return targets;
+      },
+    }),
+  );
+
+  // Completion
+  context.subscriptions.push(
+    vscode.languages.registerCompletionItemProvider(
+      { language: 'feature' },
+      {
+        provideCompletionItems(doc, position) {
+          const folder = vscode.workspace.getWorkspaceFolder(doc.uri);
+          const index = manager.getIndex(folder);
+          if (!index) return [];
+          const items: vscode.CompletionItem[] = [];
+          for (const s of index.steps) {
+            const label = `${s.kind}: ${s.regex}`;
+            const ci = new vscode.CompletionItem(label, vscode.CompletionItemKind.Snippet);
+            ci.insertText = new vscode.SnippetString(toSnippet(s.regex));
+            ci.detail = `${s.file}:${s.line}`;
+            items.push(ci);
+          }
+          return items;
+        },
+      },
+      ' ', // trigger on space
+    ),
+  );
+
+  // Hover
+  context.subscriptions.push(
+    vscode.languages.registerHoverProvider({ language: 'feature' }, {
+      provideHover(doc, position) {
+        const folder = vscode.workspace.getWorkspaceFolder(doc.uri);
+        const index = manager.getIndex(folder);
+        if (!index) return undefined;
+        const line = doc.lineAt(position.line).text;
+        const m = /^(Given|When|Then|And|But)\s+(.+)$/.exec(line);
+        if (!m) return undefined;
+        const body = m[2];
+        const kinds: ('Given'|'When'|'Then')[] = ['Given','When','Then'];
+        for (const kind of kinds) {
+          const matches = manager.matchStep(index.steps, kind, body);
+          if (matches.length) {
+            const s = matches[0];
+            const md = new vscode.MarkdownString();
+            md.appendMarkdown(`**${s.kind}**  \\`);
+            md.appendMarkdown(`/${s.regex}/  \\`);
+            md.appendMarkdown(`${s.file}:${s.line}`);
+            md.isTrusted = false;
+            return new vscode.Hover(md);
+          }
+        }
+        return undefined;
+      },
+    }),
+  );
 }
 
 export function deactivate() {}
+
+function toSnippet(regex: string): string {
+  // Basic conversion: (\d+) -> ${1:number}; (.+) -> ${1:value}
+  let idx = 1;
+  return regex
+    .replace(/\^|\$/g, '')
+    .replace(/\\d\+/g, () => `\${{${idx++}:number}}`)
+    .replace(/\(\.\+\)/g, () => `\${{${idx++}:value}}`);
+}

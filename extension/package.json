@@ -13,21 +13,83 @@
   "engines": { "vscode": "^1.92.0" },
   "categories": ["Other"],
   "main": "./out/extension.js",
-  "activationEvents": ["onLanguage:feature", "onCommand:cukerust.rebuildIndex"],
+  "activationEvents": [
+    "onLanguage:feature",
+    "onCommand:cukerust.rebuildIndex",
+    "onCommand:cukerust.dev.extractIndex"
+  ],
   "contributes": {
     "commands": [
       {
         "command": "cukerust.rebuildIndex",
         "title": "CukeRust: Rebuild Step Index"
+      },
+      {
+        "command": "cukerust.dev.extractIndex",
+        "title": "CukeRust: Dev — Extract Step Index (Fixture)"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "CukeRust",
+      "properties": {
+        "cukerust.discovery.mode": {
+          "type": "string",
+          "enum": ["auto", "static-scan", "artifact", "runtime-list"],
+          "default": "auto",
+          "description": "Discovery mode for steps"
+        },
+        "cukerust.index.path": {
+          "type": "string",
+          "default": "docs/cukerust/step_index.json",
+          "description": "Path to step_index.json for Artifact mode"
+        },
+        "cukerust.runMatrix.path": {
+          "type": "string",
+          "default": "docs/cukerust/run_matrix.md",
+          "description": "Path to run_matrix.md"
+        },
+        "cukerust.goToDef.preferSingle": {
+          "type": "boolean",
+          "default": false,
+          "description": "Prefer first candidate on go-to-definition when multiple matches exist"
+        },
+        "cukerust.regex.matchMode": {
+          "type": "string",
+          "enum": ["anchored", "smart", "substring"],
+          "default": "smart",
+          "description": "Matching mode for regexes"
+        },
+        "cukerust.ignoreGlobs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Extra globs to ignore during static scan"
+        },
+        "cukerust.diagnostics.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable diagnostics in feature files"
+        },
+        "cukerust.completion.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable completion items in feature files"
+        },
+        "cukerust.statusbar.showMode": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show discovery mode and active root in status bar"
+        }
+      }
+    }
   },
   "scripts": {
     "build:wasm": "wasm-pack build ../rust/crates/cukerust_wasm --target nodejs --release --out-dir ./native/cukerust-wasm",
     "build:ts": "tsup src/extension.ts --format=cjs --dts --out-dir out --external:vscode",
     "build": "npm run build:wasm && npm run build:ts",
-    "test": "echo 'No tests yet'",
-    "test:int": "echo 'No integration tests yet'",
+    "test": "vitest run",
+    "test:int": "node ./out/test/runTest.js",
+    "lint": "eslint .",
     "package": "vsce package"
   },
   "devDependencies": {
@@ -35,7 +97,10 @@
     "typescript": "^5.6.2",
     "@types/node": "^20.14.2",
     "@types/vscode": "^1.92.0",
-    "@vscode/vsce": "^3.0.0"
+    "@vscode/vsce": "^3.0.0",
+    "@vscode/test-electron": "^3.0.0",
+    "eslint": "^9.0.0",
+    "vitest": "^2.0.0"
   },
   "files": ["out/**", "native/**"]
 }

@@ -140,6 +140,21 @@ Use cases
 - Pure Rust: `cargo test --workspace`.
 - WASM: `wasm-pack test --node` or test via TS importing the built WASM.
 
+### Rust BDD/TDD (Gherkin via `cucumber`)
+
+- Model: Write Gherkin `*.feature` files that describe expected behavior; implement step definitions in Rust; run via the [`cucumber`](https://crates.io/crates/cucumber) crate.
+- Suggested layout (core crate):
+  - `rust/crates/cukerust_core/features/**/*.feature`
+  - `rust/crates/cukerust_core/tests/bdd.rs` — test harness launching cucumber (async tokio runtime)
+  - `rust/crates/cukerust_core/Cargo.toml` dev-deps: `cucumber`, `tokio`
+- Run:
+  - `cargo test -p cukerust_core --test bdd` (or simply `cargo test` to run all tests including BDD)
+- Scope examples:
+  - Parsing `#[given/when/then]` attributes and raw strings
+  - `.given/.when/.then` builder chains
+  - `given!/when!/then!` macros
+  - Ambiguity/undefined detection semantics (core parsing level)
+
 ## Coverage
 
 - TS: `c8` (V8 coverage). For extension‑host integration tests, coverage is partial because code runs in a child process.

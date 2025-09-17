@@ -140,3 +140,14 @@ Example scripts (extension/package.json)
 - Minimize data crossing the TS⇄WASM boundary. Prefer batched JSON or binary buffers.
 - Keep WASM CPU‑bound; all I/O stays in TS.
 - Profile with `--inspect` and flamegraphs to identify and tune CPU hotspots.
+
+## Rust development methodology (BDD/TDD, Gherkin)
+
+- For the Rust portion (`cukerust_core` primarily), we adopt a BDD‑first TDD workflow using Gherkin features and the `cucumber` crate.
+- Layout:
+  - `rust/crates/cukerust_core/features/**/*.feature`
+  - `rust/crates/cukerust_core/tests/bdd.rs` (harness that launches cucumber on the features directory)
+- Commands:
+  - Run all tests including BDD: `cargo test -p cukerust_core`
+  - Only the BDD harness: `cargo test -p cukerust_core --test bdd`
+- Scope: scenarios validate parsing behaviors that drive the Step Index (attributes, builder chains, macros, raw strings).
