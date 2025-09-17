@@ -75,6 +75,11 @@ impl StepIndex {
             *map.entry((s.kind.clone(), s.regex.as_str())).or_insert(0) += 1;
         }
         stats.ambiguous = map.values().filter(|&&c| c > 1).count();
+        // Timestamp for artifact freshness consumers (skip on wasm32)
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            stats.generated_at = Some(chrono::Utc::now().to_rfc3339());
+        }
         StepIndex { steps, stats }
     }
 }
@@ -82,19 +87,21 @@ impl StepIndex {
 pub fn extract_step_index_from_files(files: &[SourceFile]) -> StepIndex {
     let mut out: Vec<StepEntry> = Vec::new();
 
-    // Pre-compile lightweight detectors for builder/macro lines (only detect call and kind).
-    let builder_re = Regex::new("\\.(given|when|then)\\s*\\(").unwrap();
+    // Pre-compile detectors for builder/macro lines (detect call and kind); allow generics like .given::<T>(
+    let builder_re = Regex::new("\\.(given|when|then)\\s*(?:::<[^>]+>)?\\s*\\(").unwrap();
     let macro_re = Regex::new("\\b(given|when|then)!\\s*\\(").unwrap();
-    let attr_re = Regex::new("#\\[\\s*(given|when|then)[^\\]]*\\]").unwrap();
+    // Multi-line attribute block matcher (DOTALL)
+    let attr_block_re = Regex::new("(?s)#\\[\\s*(given|when|then)[^\\]]*\\]").unwrap();
 
     for sf in files {
-        for (i, line) in sf.text.lines().enumerate() {
+        let stripped = strip_comments_preserving_strings(&sf.text);
+        for (i, line) in stripped.lines().enumerate() {
             let lineno = i + 1;
-            // Builder chains: .given/.when/.then(r"…")
-            if let Some(cap) = builder_re.captures(line) {
+            // Builder chains: .given/.when/.then(r"…"); collect all matches in a line
+            for cap in builder_re.captures_iter(line) {
                 let kind = kind_from_lower(cap.get(1).map(|m| m.as_str()).unwrap_or(""));
-                if let Some(open) = line.find('(') {
-                    let after = &line[open + 1..];
+                if let Some(m0) = cap.get(0) {
+                    let after = &line[m0.end()..];
                     if let Some(regex_text) = extract_first_string_literal(after) {
                         out.push(StepEntry {
                             kind,
@@ -106,16 +113,15 @@ pub fn extract_step_index_from_files(files: &[SourceFile]) -> StepIndex {
                             tags: None,
                             notes: None,
                         });
-                        continue;
                     }
                 }
             }
 
-            // Macros: given!/when!/then!(r"…", ...)
-            if let Some(cap) = macro_re.captures(line) {
+            // Macros: given!/when!/then!(r"…", ...); collect all matches in a line
+            for cap in macro_re.captures_iter(line) {
                 let kind = kind_from_lower(cap.get(1).map(|m| m.as_str()).unwrap_or(""));
-                if let Some(open) = line.find('(') {
-                    let after = &line[open + 1..];
+                if let Some(m0) = cap.get(0) {
+                    let after = &line[m0.end()..];
                     if let Some(regex_text) = extract_first_string_literal(after) {
                         out.push(StepEntry {
                             kind,
@@ -127,33 +133,38 @@ pub fn extract_step_index_from_files(files: &[SourceFile]) -> StepIndex {
                             tags: None,
                             notes: None,
                         });
-                        continue;
                     }
                 }
             }
+        }
 
-            // Attribute macros: #[given/when/then(...)] on the same line
-            if attr_re.is_match(line) {
-                if let Some(attr_cap) = attr_re.captures(line) {
-                    let kind = kind_from_lower(attr_cap.get(1).map(|m| m.as_str()).unwrap_or(""));
-                    // Try to extract literal from inside the attribute's brackets
-                    if let Some(start) = line.find('[') {
-                        if let Some(end) = line[start..].find(']') {
-                            let inside = &line[start + 1..start + end];
-                            if let Some(regex_text) = extract_first_string_literal(inside) {
-                                out.push(StepEntry {
-                                    kind,
-                                    regex: regex_text,
-                                    file: sf.path.clone(),
-                                    line: lineno,
-                                    function: None,
-                                    captures: None,
-                                    tags: None,
-                                    notes: None,
-                                });
-                                continue;
-                            }
-                        }
+        // Attribute macros: scan across the stripped file text for multi-line #[given/when/then(...)] blocks
+        for cap in attr_block_re.captures_iter(&stripped) {
+            let kind = kind_from_lower(cap.get(1).map(|m| m.as_str()).unwrap_or(""));
+            if let Some(m0) = cap.get(0) {
+                let matched = &stripped[m0.start()..m0.end()];
+                if let (Some(lb), Some(rb)) = (matched.find('['), matched.rfind(']')) {
+                    let inside = &matched[lb + 1..rb];
+                    if let Some(regex_text) = extract_first_string_literal(inside) {
+                        // line number: count newlines up to match start
+                        let lineno = stripped[..m0.start()].bytes().filter(|&b| b == b'\n').count() + 1;
+                        // best-effort function name capture from the next few lines
+                        let suffix = &stripped[m0.end()..];
+                        let fn_scope: String = suffix.lines().take(4).collect::<Vec<_>>().join("\n");
+                        let fn_re = Regex::new(r"(?m)^\s*fn\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(").unwrap();
+                        let function = fn_re
+                            .captures(&fn_scope)
+                            .and_then(|c| c.get(1).map(|m| m.as_str().to_string()));
+                        out.push(StepEntry {
+                            kind,
+                            regex: regex_text,
+                            file: sf.path.clone(),
+                            line: lineno,
+                            function,
+                            captures: None,
+                            tags: None,
+                            notes: None,
+                        });
                     }
                 }
             }
@@ -247,6 +258,87 @@ fn extract_first_string_literal(s: &str) -> Option<String> {
         i += 1;
     }
     None
+}
+
+/// Remove line (// ...) and block (/* ... */) comments while preserving string literals and newlines.
+fn strip_comments_preserving_strings(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = String::with_capacity(s.len());
+    let mut i = 0;
+    let len = bytes.len();
+    let mut in_block = false;
+    let mut in_normal = false;
+    let mut in_raw = false;
+    let mut raw_hashes = 0usize;
+    while i < len {
+        let b = bytes[i];
+        if in_block {
+            if b == b'*' && i + 1 < len && bytes[i + 1] == b'/' {
+                in_block = false;
+                out.push(' ');
+                out.push(' ');
+                i += 2;
+            } else {
+                // replace with spaces, preserve newlines
+                if b == b'\n' { out.push('\n'); } else { out.push(' '); }
+                i += 1;
+            }
+            continue;
+        }
+        if in_normal {
+            out.push(b as char);
+            if b == b'\\' {
+                if i + 1 < len { out.push(bytes[i + 1] as char); i += 2; } else { i += 1; }
+                continue;
+            }
+            if b == b'"' { in_normal = false; }
+            i += 1;
+            continue;
+        }
+        if in_raw {
+            out.push(b as char);
+            if b == b'"' {
+                // check for closing raw string by matching hashes
+                let mut ok = true;
+                for h in 0..raw_hashes {
+                    if i + 1 + h >= len || bytes[i + 1 + h] != b'#' { ok = false; break; }
+                }
+                if ok { in_raw = false; }
+            }
+            i += 1;
+            continue;
+        }
+        // Not in any special mode
+        if b == b'/' && i + 1 < len && bytes[i + 1] == b'/' {
+            // line comment: replace rest of line with spaces
+            while i < len && bytes[i] != b'\n' { out.push(' '); i += 1; }
+            continue;
+        }
+        if b == b'/' && i + 1 < len && bytes[i + 1] == b'*' {
+            in_block = true;
+            out.push(' ');
+            out.push(' ');
+            i += 2;
+            continue;
+        }
+        if b == b'r' {
+            // possible raw string
+            let mut j = i + 1; let mut hashes = 0usize;
+            while j < len && bytes[j] == b'#' { hashes += 1; j += 1; }
+            if j < len && bytes[j] == b'"' {
+                in_raw = true; raw_hashes = hashes; out.push('r');
+                for _ in 0..hashes { out.push('#'); }
+                out.push('"');
+                i = j + 1; continue;
+            }
+        }
+        if b == b'"' {
+            in_normal = true; out.push('"'); i += 1; continue;
+        }
+        out.push(b as char);
+        i += 1;
+    }
+    out
 }
 
 #[cfg(test)]
