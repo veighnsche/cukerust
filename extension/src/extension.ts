@@ -6,6 +6,8 @@ import { registerSemanticTokens } from './semantics';
 
 export function activate(context: vscode.ExtensionContext) {
   const manager = new StepIndexManager(context);
+  // Always preload WASM so sync callers can rely on it being present
+  void manager.ensureWasm();
   const status = vscode.window.createStatusBarItem('cukerust.mode', vscode.StatusBarAlignment.Left, 100);
   status.name = 'CukeRust Mode';
   status.tooltip = 'CukeRust discovery mode';

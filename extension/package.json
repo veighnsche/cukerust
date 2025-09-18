@@ -28,10 +28,7 @@
     "onCommand:cukerust.dev.matchBenchmark",
     "onCommand:cukerust.runScenario",
     "onCommand:cukerust.clearAmbiguityMemory",
-    "onCommand:cukerust.listStepsViaRunner",
-    "onCommand:cukerust.openOutput",
-    "onCommand:cukerust.openHealthReport",
-    "onCommand:cukerust.quickStart"
+    "onCommand:cukerust.listStepsViaRunner"
   ],
   "contributes": {
     "languages": [
@@ -85,18 +82,6 @@
       {
         "command": "cukerust.listStepsViaRunner",
         "title": "CukeRust: List Steps via Runner"
-      },
-      {
-        "command": "cukerust.openOutput",
-        "title": "CukeRust: Open Output"
-      },
-      {
-        "command": "cukerust.openHealthReport",
-        "title": "CukeRust: Open Health Report"
-      },
-      {
-        "command": "cukerust.quickStart",
-        "title": "CukeRust: Quick Start (Create Sample Feature)"
       }
     ],
     "configuration": {
@@ -166,6 +151,7 @@
           "default": "",
           "description": "Shell command to list steps as JSON StepIndex (Runtime-List mode)."
         }
+        
       }
     },
     "configurationDefaults": {
@@ -184,8 +170,8 @@
     "build:wasm": "wasm-pack build ../rust/crates/cukerust_wasm --target nodejs --release --out-dir ../../../extension/native/cukerust-wasm",
     "build:ts": "tsup src/extension.ts src/test/runTest.ts src/test/suite/runner.ts src/test/suite/extension.test.ts --format=cjs --out-dir out --external vscode --external mocha",
     "build": "npm run build:wasm && npm run build:ts",
-    "test": "vitest run",
-    "test:int": "node ./out/test/runTest.js",
+    "test": "npm run build:wasm && vitest run",
+    "test:int": "npm run build:wasm && node ./out/test/runTest.js",
     "lint": "eslint .",
     "package": "vsce package"
   },

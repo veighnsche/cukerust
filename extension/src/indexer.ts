@@ -2,8 +2,6 @@ import * as vscode from 'vscode';
 import type { StepEntry, StepIndex, SourceFileInput } from './types';
 import { exec } from 'child_process';
 import { dedupeSteps } from './core/dedupe';
-import { matchStep as coreMatchStep } from './core/match';
-import { buildDiagnostics } from './core/diagnostics';
 
 export class StepIndexManager {
   private indexes = new Map<string, StepIndex>(); // key: workspace folder fsPath
@@ -189,22 +187,46 @@ export class StepIndexManager {
     const index = this.getIndex(folder);
     if (!index) { this.diag.delete(doc.uri); return; }
     const cfg = vscode.workspace.getConfiguration('cukerust', folder ?? undefined);
-    const diags = buildDiagnostics(
-      doc,
-      index,
-      (steps, kind, body, mode) => this.matchStep(steps, kind, body, mode),
-      cfg,
-    );
-    this.diag.set(doc.uri, diags);
+    try {
+      const wasm = await this.ensureWasm();
+      const featureText = doc.getText();
+      const payload = JSON.stringify({
+        feature_text: featureText,
+        config: {
+          dialect: cfg.get<'auto'|'en'|'es'>('dialect', 'auto'),
+          match_mode: cfg.get<'anchored'|'smart'|'substring'>('regex.matchMode', 'smart'),
+        },
+        steps: index.steps,
+      });
+      const out = wasm.diagnostics_for_feature(payload) as string;
+      let parsed: { diags?: Array<{ line: number; message: string; severity: string }> } = {};
+      try { parsed = JSON.parse(out); } catch {}
+      const diags: vscode.Diagnostic[] = [];
+      for (const d of parsed.diags ?? []) {
+        const lineText = d.line < doc.lineCount ? doc.lineAt(d.line).text : '';
+        const range = new vscode.Range(d.line, 0, d.line, lineText.length);
+        const sev = vscode.DiagnosticSeverity.Warning;
+        const vd = new vscode.Diagnostic(range, d.message, sev);
+        vd.source = 'CukeRust';
+        diags.push(vd);
+      }
+      this.diag.set(doc.uri, diags);
+    } catch (e) {
+      // On WASM error, clear diagnostics
+      this.diag.set(doc.uri, []);
+    }
   }
 
   matchStep(steps: StepEntry[], kind: 'Given' | 'When' | 'Then', body: string, mode?: 'anchored'|'smart'|'substring'): StepEntry[] {
-    let m = mode;
-    if (!m) {
-      const folder = vscode.workspace.getWorkspaceFolder(vscode.window.activeTextEditor?.document?.uri ?? vscode.Uri.file(''));
-      m = vscode.workspace.getConfiguration('cukerust', folder ?? undefined).get<'anchored'|'smart'|'substring'>('regex.matchMode', 'smart');
+    const folder = vscode.workspace.getWorkspaceFolder(vscode.window.activeTextEditor?.document?.uri ?? vscode.Uri.file(''));
+    const cfg = vscode.workspace.getConfiguration('cukerust', folder ?? undefined);
+    const m = mode ?? cfg.get<'anchored'|'smart'|'substring'>('regex.matchMode', 'smart');
+    try {
+      const payload = JSON.stringify({ steps, query: { kind, body, mode: m } });
+      return JSON.parse((this.wasmModule ?? {}).match_steps?.(payload) ?? '[]') as StepEntry[];
+    } catch {
+      return [];
     }
-    return coreMatchStep(steps, kind, body, (m ?? 'smart'));
   }
 
   async listStepsViaRunner(folder: vscode.WorkspaceFolder): Promise<void> {
@@ -229,7 +251,7 @@ export class StepIndexManager {
           return;
         }
         try {
-          const index: StepIndex = JSON.parse(stdout.toString('utf-8'));
+          const index: StepIndex = JSON.parse(stdout.toString());
           this.indexes.set(folder.uri.fsPath, index);
           this.artifactStale.set(folder.uri.fsPath, false);
         } catch (e) {
