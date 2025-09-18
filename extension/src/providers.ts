@@ -61,20 +61,34 @@ export function registerProviders(
         // Ambiguity memory key: kind + original body
         const key = `${kind}|${body}`;
         const remembered = manager.getAmbiguityChoice(key);
+        const origin = bodyRange(line, keyword, body, position.line);
+        // If cursor is within the body, let DocumentLink provider own Ctrl+Click so the entire body is underlined
+        if (position.character >= origin.start.character && position.character <= origin.end.character) {
+          return undefined;
+        }
         if (remembered) {
           const root = folder?.uri ?? vscode.Uri.file('/');
-          const target = vscode.Uri.joinPath(root, remembered.file);
+          const targetUri = vscode.Uri.joinPath(root, remembered.file);
           const pos = new vscode.Position(Math.max(0, (remembered.line ?? 1) - 1), 0);
-          return new vscode.Location(target, pos);
+          const link: vscode.LocationLink = {
+            originSelectionRange: origin,
+            targetUri,
+            targetRange: new vscode.Range(pos, pos),
+          };
+          return [link];
         }
         if (matches.length === 0) return undefined;
-        const targets = matches.map((s) => {
+        const links: vscode.LocationLink[] = matches.map((s) => {
           const root = folder?.uri ?? vscode.Uri.file('/');
-          const target = vscode.Uri.joinPath(root, s.file);
+          const targetUri = vscode.Uri.joinPath(root, s.file);
           const pos = new vscode.Position(Math.max(0, (s.line ?? 1) - 1), 0);
-          return new vscode.Location(target, pos);
+          return {
+            originSelectionRange: origin,
+            targetUri,
+            targetRange: new vscode.Range(pos, pos),
+          } satisfies vscode.LocationLink;
         });
-        if (targets.length === 1) return targets;
+        if (links.length === 1) return links;
         // Present quick pick and remember choice
         const items = matches.map((s) => ({ label: `${s.file}:${s.line}`, description: `${s.kind} /${s.regex}/`, s }));
         const picked = await vscode.window.showQuickPick(items, { placeHolder: 'Multiple step definitions found. Choose one to remember.' });
@@ -82,11 +96,16 @@ export function registerProviders(
           const s = picked.s;
           manager.setAmbiguityChoice(`${kind}|${body}`, { file: s.file, line: s.line });
           const root = folder?.uri ?? vscode.Uri.file('/');
-          const target = vscode.Uri.joinPath(root, s.file);
+          const targetUri = vscode.Uri.joinPath(root, s.file);
           const pos = new vscode.Position(Math.max(0, (s.line ?? 1) - 1), 0);
-          return new vscode.Location(target, pos);
+          const link: vscode.LocationLink = {
+            originSelectionRange: origin,
+            targetUri,
+            targetRange: new vscode.Range(pos, pos),
+          };
+          return [link];
         }
-        return targets;
+        return links;
       },
     }),
   );
@@ -132,6 +151,7 @@ export function registerProviders(
         const line = doc.lineAt(position.line).text;
         const m = stepRe.exec(line);
         if (!m) return undefined;
+        const keyword = m[1];
         const body = m[2];
         const oc = extractOutlineContext(text, position.line);
         const bodies: string[] = (oc.isOutline && oc.examples.length > 0 && /<[^>]+>/.test(body))
@@ -140,7 +160,7 @@ export function registerProviders(
         const kinds: ('Given'|'When'|'Then')[] = ['Given','When','Then'];
         for (const kind of kinds) {
           for (const b of bodies) {
-            const matches = manager.matchStep(index.steps, kind, b);
+            const matches = index ? manager.matchStep(index.steps, kind, b) : [];
             if (matches.length) {
               const s = matches[0];
               const md = new vscode.MarkdownString();
@@ -148,7 +168,7 @@ export function registerProviders(
               // Title
               md.appendMarkdown(`### ${s.kind}\n`);
               // Regex block
-              md.appendCodeblock(s.regex, 'regex');
+              md.appendMarkdown('```regex\n' + s.regex + '\n```\n');
               // File link
               const root = folder?.uri ?? vscode.Uri.file('/');
               const target = vscode.Uri.joinPath(root, s.file);
@@ -174,11 +194,31 @@ export function registerProviders(
               if (matches.length > 1) {
                 md.appendMarkdown(`\n> Note: ${matches.length - 1} other candidate(s) exist. Use Go to Definition to disambiguate or run \`CukeRust: Clear Ambiguity Choices\`.\n`);
               }
-              return new vscode.Hover(md);
+              // Highlight the entire step body (text after the keyword)
+              const esc = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+              const pref = new RegExp(`^(\\s*${esc}\\s+)`).exec(line);
+              const bodyStart = pref ? pref[0].length : Math.max(0, line.indexOf(body));
+              const range = new vscode.Range(position.line, bodyStart, position.line, Math.max(bodyStart + body.length, bodyStart));
+              // Only constrain hover to body if the cursor is within the body; otherwise show hover without range
+              if (position.character >= bodyStart && position.character <= bodyStart + body.length) {
+                return new vscode.Hover(md, range);
+              } else {
+                return new vscode.Hover(md);
+              }
             }
           }
         }
-        return undefined;
+        // Fallback hover when no matches yet: still show parsed step info
+        const md = new vscode.MarkdownString();
+        md.isTrusted = false;
+        md.appendMarkdown(`Step: \`${body}\`\n`);
+        md.appendMarkdown(`(No matching step definition yet. Try "CukeRust: Rebuild Step Index" or adjust discovery mode.)`);
+        // Highlight the body range for clarity
+        const esc = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const pref = new RegExp(`^(\\s*${esc}\\s+)`).exec(line);
+        const bodyStart = pref ? pref[0].length : Math.max(0, line.indexOf(body));
+        const range = new vscode.Range(position.line, bodyStart, position.line, Math.max(bodyStart + body.length, bodyStart));
+        return new vscode.Hover(md, range);
       },
     }),
   );
@@ -186,6 +226,91 @@ export function registerProviders(
   // CodeLens for running scenarios
   context.subscriptions.push(
     vscode.languages.registerCodeLensProvider(ds, new ScenarioCodeLensProvider()),
+  );
+
+  // DocumentLink: make the entire step body clickable (Ctrl+Click) to jump to definition
+  context.subscriptions.push(
+    vscode.languages.registerDocumentLinkProvider(ds, {
+      provideDocumentLinks(doc) {
+        const folder = vscode.workspace.getWorkspaceFolder(doc.uri);
+        const index = manager.getIndex(folder ?? null);
+        const text = doc.getText();
+        const configured = vscode.workspace.getConfiguration('cukerust', folder ?? undefined).get<'auto'|'en'|'es'>('dialect', 'auto');
+        const code = detectDialect(text, configured);
+        const dialect = getDialect(code);
+        const stepRe = buildStepKeywordRegex(dialect);
+        const links: vscode.DocumentLink[] = [];
+        for (let line = 0; line < doc.lineCount; line++) {
+          const raw = doc.lineAt(line).text;
+          const m = stepRe.exec(raw);
+          if (!m) continue;
+          const keyword = m[1];
+          const body = m[2];
+          // Determine effective kind (resolve And/But)
+          let kind: 'Given'|'When'|'Then' = dialect.Given.includes(keyword) ? 'Given'
+            : dialect.When.includes(keyword) ? 'When'
+            : dialect.Then.includes(keyword) ? 'Then' : 'Given';
+          if (dialect.And.includes(keyword) || dialect.But.includes(keyword)) {
+            // look upward for prior explicit kind
+            for (let i = line - 1; i >= 0; i--) {
+              const t = doc.lineAt(i).text;
+              const mm = stepRe.exec(t);
+              if (mm) {
+                const kw = mm[1];
+                if (dialect.Given.includes(kw)) { kind = 'Given'; break; }
+                if (dialect.When.includes(kw)) { kind = 'When'; break; }
+                if (dialect.Then.includes(kw)) { kind = 'Then'; break; }
+              }
+            }
+          }
+          // Resolve matches; prefer remembered ambiguity choice
+          let matches = index ? manager.matchStep(index.steps, kind, body) : [];
+          const remembered = manager.getAmbiguityChoice(`${kind}|${body}`);
+          if (remembered) {
+            const target = {
+              file: remembered.file,
+              line: remembered.line ?? 1,
+            };
+            const range = bodyRange(raw, keyword, body, line);
+            const rootUri = folder?.uri ?? vscode.Uri.file('/');
+            const uri = vscode.Uri.joinPath(rootUri, target.file).with({ fragment: `L${target.line}` });
+            const cmd = vscode.Uri.parse(`command:vscode.open?${encodeURIComponent(JSON.stringify([uri]))}`);
+            const link = new vscode.DocumentLink(range, cmd);
+            link.tooltip = 'Go to Step Definition';
+            links.push(link);
+            continue;
+          }
+          if (matches.length === 1) {
+            const s = matches[0];
+            const range = bodyRange(raw, keyword, body, line);
+            const rootUri = folder?.uri ?? vscode.Uri.file('/');
+            const uri = vscode.Uri.joinPath(rootUri, s.file).with({ fragment: `L${(s.line ?? 1)}` });
+            const cmd = vscode.Uri.parse(`command:vscode.open?${encodeURIComponent(JSON.stringify([uri]))}`);
+            const link = new vscode.DocumentLink(range, cmd);
+            link.tooltip = 'Go to Step Definition';
+            links.push(link);
+          } else if (matches.length > 1) {
+            const range = bodyRange(raw, keyword, body, line);
+            const cmd = vscode.Uri.parse(
+              `command:cukerust.goToStepByLink?${encodeURIComponent(JSON.stringify({ query: { kind, body, root: folder?.uri.toString() } }))}`,
+            );
+            const link = new vscode.DocumentLink(range, cmd);
+            link.tooltip = 'Choose Step Definition';
+            links.push(link);
+          } else {
+            // No matches yet: still create a link to trigger resolution (and show a message if nothing found)
+            const range = bodyRange(raw, keyword, body, line);
+            const cmd = vscode.Uri.parse(
+              `command:cukerust.goToStepByLink?${encodeURIComponent(JSON.stringify({ query: { kind, body, root: folder?.uri.toString() } }))}`,
+            );
+            const link = new vscode.DocumentLink(range, cmd);
+            link.tooltip = 'Find Step Definition';
+            links.push(link);
+          }
+        }
+        return links;
+      },
+    }),
   );
 }
 
@@ -207,4 +332,12 @@ class ScenarioCodeLensProvider implements vscode.CodeLensProvider {
     }
     return lenses;
   }
+}
+
+
+function bodyRange(lineText: string, keyword: string, body: string, line: number): vscode.Range {
+  const esc = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pref = new RegExp(`^(\\s*${esc}\\s+)`).exec(lineText);
+  const start = pref ? pref[0].length : Math.max(0, lineText.indexOf(body));
+  return new vscode.Range(line, start, line, Math.max(start + body.length, start));
 }

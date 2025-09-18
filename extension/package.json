@@ -20,6 +20,8 @@
   "keywords": ["gherkin", "cucumber", "bdd", "rust", "testing", "feature", "steps"],
   "activationEvents": [
     "onLanguage:feature",
+    "onLanguage:gherkin",
+    "onLanguage:cucumber",
     "onCommand:cukerust.rebuildIndex",
     "onCommand:cukerust.rebuildStatic",
     "onCommand:cukerust.dev.extractIndex",

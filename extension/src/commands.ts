@@ -17,6 +17,71 @@ export function registerCommands(
   status: vscode.StatusBarItem,
   output: vscode.OutputChannel,
 ) {
+  // Go to Step from DocumentLink (handles single or multiple candidates)
+  context.subscriptions.push(vscode.commands.registerCommand('cukerust.goToStepByLink', async (payload?: Array<{ file: string; line: number; root?: string; kind?: 'Given'|'When'|'Then'; body?: string }> | { query?: { kind: 'Given'|'When'|'Then'; body: string; root?: string } }) => {
+    try {
+      if (Array.isArray(payload)) {
+        const items = payload;
+        if (items.length === 0) return;
+        const first = items[0];
+        const root = first.root ? vscode.Uri.parse(first.root) : (vscode.workspace.workspaceFolders?.[0]?.uri ?? vscode.Uri.file('/'));
+        const pickItems = items.map((it) => ({
+          label: `${it.file}:${it.line}`,
+          description: it.kind ? `${it.kind}` : undefined,
+          it,
+        }));
+        let chosen: typeof pickItems[number] | undefined = pickItems[0];
+        if (pickItems.length > 1) {
+          chosen = await vscode.window.showQuickPick<typeof pickItems[number]>(pickItems, { placeHolder: 'Multiple step definitions found. Choose one to open.' });
+          if (!chosen) return;
+        }
+        if (!chosen) return;
+        const uri = vscode.Uri.joinPath(root, chosen.it.file);
+        const pos = new vscode.Position(Math.max(0, (chosen.it.line ?? 1) - 1), 0);
+        const doc = await vscode.workspace.openTextDocument(uri);
+        const ed = await vscode.window.showTextDocument(doc);
+        ed.selection = new vscode.Selection(pos, pos);
+        ed.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
+        // Remember ambiguity if we have kind/body in the payload
+        if (first.kind && typeof first.body === 'string' && pickItems.length > 1) {
+          manager.setAmbiguityChoice(`${first.kind}|${first.body}`, { file: chosen.it.file, line: chosen.it.line });
+        }
+        return;
+      }
+
+      const query = (payload as any)?.query as { kind: 'Given'|'When'|'Then'; body: string; root?: string } | undefined;
+      if (!query) return;
+      const root = query.root ? vscode.Uri.parse(query.root) : (vscode.workspace.workspaceFolders?.[0]?.uri ?? vscode.Uri.file('/'));
+      const folder = vscode.workspace.getWorkspaceFolder(root) ?? vscode.workspace.workspaceFolders?.[0];
+      if (!folder) return;
+      // Ensure index exists
+      let index = manager.getIndex(folder);
+      if (!index) {
+        await manager.rebuildForFolder(folder);
+        index = manager.getIndex(folder);
+      }
+      if (!index) { vscode.window.showWarningMessage('CukeRust: No Step Index available'); return; }
+      const matches = manager.matchStep(index.steps, query.kind, query.body);
+      if (matches.length === 0) { vscode.window.showWarningMessage('CukeRust: No matching step definition found'); return; }
+      const items = matches.map((s) => ({ label: `${s.file}:${s.line}`, description: `${s.kind}`, s }));
+      let chosen: typeof items[number] | undefined = items[0];
+      if (items.length > 1) {
+        chosen = await vscode.window.showQuickPick<typeof items[number]>(items, { placeHolder: 'Multiple step definitions found. Choose one to open.' });
+        if (!chosen) return;
+        // Remember choice
+        manager.setAmbiguityChoice(`${query.kind}|${query.body}`, { file: chosen.s.file, line: chosen.s.line });
+      }
+      if (!chosen) return;
+      const uri = vscode.Uri.joinPath(root, chosen.s.file);
+      const pos = new vscode.Position(Math.max(0, (chosen.s.line ?? 1) - 1), 0);
+      const doc = await vscode.workspace.openTextDocument(uri);
+      const ed = await vscode.window.showTextDocument(doc);
+      ed.selection = new vscode.Selection(pos, pos);
+      ed.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
+    } catch (e) {
+      vscode.window.showErrorMessage(`CukeRust: Failed to open step: ${String(e)}`);
+    }
+  }));
   // Open Output command
   context.subscriptions.push(vscode.commands.registerCommand('cukerust.openOutput', async () => {
     output.show(true);
