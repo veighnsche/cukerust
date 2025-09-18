@@ -184,6 +184,7 @@
     "@types/node": "^20.14.2",
     "@types/vscode": "^1.92.0",
     "@vscode/vsce": "^3.0.0",
+    "@vscode/ovsx": "^0.8.2",
     "@vscode/test-electron": "^2.3.0",
     "eslint": "^9.0.0",
     "vitest": "^2.0.0",
