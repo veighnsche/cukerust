@@ -3,11 +3,21 @@ import * as assert from 'assert';
 import * as vscode from 'vscode';
 
 // Declare mocha globals to satisfy TS without @types/mocha
+// Support both BDD (describe/it) and TDD (suite/test) globals
+declare const describe: any;
+declare const it: any;
 declare const suite: any;
 declare const test: any;
 
-suite('CukeRust Extension', () => {
-  test('activate and rebuild index', async () => {
+const suiteFn: any = (typeof suite !== 'undefined' ? suite : (typeof describe !== 'undefined' ? describe : undefined));
+const testFn: any = (typeof test !== 'undefined' ? test : (typeof it !== 'undefined' ? it : undefined));
+
+if (!suiteFn || !testFn) {
+  throw new Error('Mocha globals not found');
+}
+
+suiteFn('CukeRust Extension', () => {
+  testFn('activate and rebuild index', async () => {
     await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     const folders = vscode.workspace.workspaceFolders ?? [];
     assert.ok(folders.length >= 1, 'workspace folder is required');

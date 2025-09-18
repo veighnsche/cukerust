@@ -8,6 +8,27 @@ Directories
 - Step defs: `rust/crates/cukerust_core/tests/steps/`
 - Harness: `rust/crates/cukerust_core/tests/bdd.rs`
 
+## Refactor and Cleanup TODO
+
+Completed (quick wins)
+
+- [x] Precompile detection regexes with `once_cell::sync::Lazy` to avoid recompilation and reduce per-file overhead (`src/step_index.rs`).
+- [x] Simplify serde casing for `Stats.by_kind` via `#[serde(rename_all = "PascalCase")]` and keep Rust field names idiomatic (`given/when/then`).
+- [x] Make `StepKind` `Copy` to avoid unnecessary clones in ambiguity counting.
+- [x] Broaden function name detection to match `pub`, `pub(crate)`, and `async fn`.
+
+Backlog (larger refactors — to be done in follow-ups)
+
+- Split `src/step_index.rs` into focused modules:
+  - `detectors.rs` (regex detectors: builder, macro, attributes, fn)
+  - `string_lit.rs` (string literal extraction)
+  - `comments.rs` (comment stripping)
+  - `extractor.rs` (orchestrates scanning and builds `StepIndex`)
+  - `types.rs` (public types: `StepKind`, `StepEntry`, `StepIndex`, `Stats`)
+- Increase unit-test coverage for `extract_first_string_literal` and `strip_comments_preserving_strings` with property tests (quickcheck/arb data).
+- Consider single-pass scanning strategy to avoid per-line regex for builders/macros (only if measurable perf gain on large repos).
+- Evaluate `no_std` compatibility for core algorithms (likely out-of-scope for VS Code usage).
+
 Status summary
 
 - [x] Attribute macros baseline (same-line) — `parsing/attributes.feature`
@@ -154,35 +175,35 @@ macros_edges.feature
 
 raw_strings_edges.feature
 
-- [ ] Given files contain raw string literals with quotes inside and varying hash counts
-- [ ] When we extract the Step Index
-- [ ] Then extracted regex content preserves exact inner text for raw strings
-- [ ] And unterminated raw strings do not panic and are ignored
-- [ ] And if both normal and raw literals appear on the same line, the first literal is used
+- [x] Given files contain raw string literals with quotes inside and varying hash counts
+- [x] When we extract the Step Index
+- [x] Then extracted regex content preserves exact inner text for raw strings
+- [x] And unterminated raw strings do not panic and are ignored
+- [x] And if both normal and raw literals appear on the same line, the first literal is used
 
 stats_semantics.feature
 
-- [ ] Given multiple files contribute overlapping and unique (kind, regex) pairs
-- [ ] When we extract the Step Index
-- [ ] Then `stats.total` equals the number of entries in `steps`
-- [ ] And `stats.by_kind` counts are correct per kind
-- [ ] And `stats.ambiguous` equals the number of duplicate clusters of identical (kind, regex) pairs
-- [ ] And duplicates across different files are counted as ambiguous
+- [x] Given multiple files contribute overlapping and unique (kind, regex) pairs
+- [x] When we extract the Step Index
+- [x] Then `stats.total` equals the number of entries in `steps`
+- [x] And `stats.by_kind` counts are correct per kind
+- [x] And `stats.ambiguous` equals the number of duplicate clusters of identical (kind, regex) pairs
+- [x] And duplicates across different files are counted as ambiguous
 
 false_positives.feature
 
-- [ ] Given files contain comments and unrelated strings with step-like text
-- [ ] When we extract the Step Index
-- [ ] Then no steps are produced from lookalike method names or macro names
-- [ ] And strings not attached to recognized calls/attributes do not produce steps
-- [ ] And any current false positives are captured and documented (as known limits)
+- [x] Given files contain comments and unrelated strings with step-like text
+- [x] When we extract the Step Index
+- [x] Then no steps are produced from lookalike method names or macro names
+- [x] And strings not attached to recognized calls/attributes do not produce steps
+- [x] And any current false positives are captured and documented (as known limits)
 
 multifile_ordering.feature
 
-- [ ] Given multiple files contribute step definitions on varying line numbers
-- [ ] When we extract the Step Index
-- [ ] Then `steps` are sorted by `(file, line)`
-- [ ] And the resulting order is stable across runs
+- [x] Given multiple files contribute step definitions on varying line numbers
+- [x] When we extract the Step Index
+- [x] Then `steps` are sorted by `(file, line)`
+- [x] And the resulting order is stable across runs
 
 Scaffolding checklist
 
@@ -216,10 +237,10 @@ New/extended step definitions (tests/steps/parsing.rs)
 
 Optional parser improvements (if implemented, add gated tests)
 
-- [ ] Strip comments prior to detection to reduce false positives
-- [ ] Support multi-line attributes
-- [ ] Support generic builder calls `.given::<T>(...)`
-- [ ] Detect multiple calls on the same line (iterate tokens, not just first literal)
+- [x] Strip comments prior to detection to reduce false positives
+- [x] Support multi-line attributes
+- [x] Support generic builder calls `.given::<T>(...)`
+- [x] Detect multiple calls on the same line (iterate tokens, not just first literal)
 
 Developer tips
 
@@ -229,8 +250,8 @@ Developer tips
 
 Definition of Done (cukerust_core)
 
-- [ ] All edge-case feature files above exist with scenarios implemented
-- [ ] Step definitions cover all Given/When/Then listed and reuse shared assertions
-- [ ] `cargo test -p cukerust_core --test bdd` passes locally and on CI
-- [ ] Documented limits reflected both in features (negative assertions) and in `.docs/05_all_testing requirements.md`
-- [ ] Any parser improvements added have gated tests and do not regress performance
+- [x] All edge-case feature files above exist with scenarios implemented
+- [x] Step definitions cover all Given/When/Then listed and reuse shared assertions
+- [x] `cargo test -p cukerust_core --test bdd` passes locally and on CI
+- [x] Documented limits reflected both in features (negative assertions) and in `.docs/05_all_testing requirements.md`
+- [x] Any parser improvements added have gated tests and do not regress performance

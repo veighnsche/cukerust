@@ -16,8 +16,12 @@
   "activationEvents": [
     "onLanguage:feature",
     "onCommand:cukerust.rebuildIndex",
+    "onCommand:cukerust.rebuildStatic",
     "onCommand:cukerust.dev.extractIndex",
-    "onCommand:cukerust.runScenario"
+    "onCommand:cukerust.dev.matchBenchmark",
+    "onCommand:cukerust.runScenario",
+    "onCommand:cukerust.clearAmbiguityMemory",
+    "onCommand:cukerust.listStepsViaRunner"
   ],
   "contributes": {
     "languages": [
@@ -37,8 +41,24 @@
         "title": "CukeRust: Dev — Extract Step Index (Fixture)"
       },
       {
+        "command": "cukerust.dev.matchBenchmark",
+        "title": "CukeRust: Dev — Match Micro Benchmark"
+      },
+      {
+        "command": "cukerust.rebuildStatic",
+        "title": "CukeRust: Force Static Scan Rebuild"
+      },
+      {
         "command": "cukerust.runScenario",
         "title": "CukeRust: Run Scenario"
+      },
+      {
+        "command": "cukerust.clearAmbiguityMemory",
+        "title": "CukeRust: Clear Ambiguity Choices"
+      },
+      {
+        "command": "cukerust.listStepsViaRunner",
+        "title": "CukeRust: List Steps via Runner"
       }
     ],
     "configuration": {
@@ -71,6 +91,12 @@
           "default": "smart",
           "description": "Matching mode for regexes"
         },
+        "cukerust.dialect": {
+          "type": "string",
+          "enum": ["auto", "en", "es"],
+          "default": "auto",
+          "description": "Gherkin dialect (auto detects via # language: header)"
+        },
         "cukerust.ignoreGlobs": {
           "type": "array",
           "items": { "type": "string" },
@@ -96,13 +122,18 @@
           "type": "string",
           "default": "echo Running ${scenarioName} in ${featurePath}",
           "description": "Run command template with placeholders: ${featurePath}, ${scenarioName}, ${tags}"
+        },
+        "cukerust.runtimeList.command": {
+          "type": "string",
+          "default": "",
+          "description": "Shell command to list steps as JSON StepIndex (Runtime-List mode)."
         }
       }
     }
   },
   "scripts": {
-    "build:wasm": "wasm-pack build ../rust/crates/cukerust_wasm --target nodejs --release --out-dir ./native/cukerust-wasm",
-    "build:ts": "tsup src/extension.ts src/test/runTest.ts src/test/suite/index.ts --format=cjs --dts --out-dir out --external:vscode",
+    "build:wasm": "wasm-pack build ../rust/crates/cukerust_wasm --target nodejs --release --out-dir ../../../extension/native/cukerust-wasm",
+    "build:ts": "tsup src/extension.ts src/test/runTest.ts src/test/suite/runner.ts src/test/suite/extension.test.ts --format=cjs --out-dir out --external vscode --external mocha",
     "build": "npm run build:wasm && npm run build:ts",
     "test": "vitest run",
     "test:int": "node ./out/test/runTest.js",
@@ -115,9 +146,10 @@
     "@types/node": "^20.14.2",
     "@types/vscode": "^1.92.0",
     "@vscode/vsce": "^3.0.0",
-    "@vscode/test-electron": "^3.0.0",
+    "@vscode/test-electron": "^2.3.0",
     "eslint": "^9.0.0",
-    "vitest": "^2.0.0"
+    "vitest": "^2.0.0",
+    "mocha": "^10.2.0"
   },
   "files": ["out/**", "native/**"]
 }

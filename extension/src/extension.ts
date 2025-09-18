@@ -1,5 +1,7 @@
 import * as vscode from 'vscode';
 import { StepIndexManager } from './indexer';
+import { detectDialect, getDialect, buildStepKeywordRegex, extractOutlineContext, resolvePlaceholders } from './gherkin';
+import { resolveRunCommand } from './run_matrix';
 
 export function activate(context: vscode.ExtensionContext) {
   const manager = new StepIndexManager(context);
@@ -15,13 +17,15 @@ export function activate(context: vscode.ExtensionContext) {
       await manager.refreshDiagnostics(doc);
     }
     vscode.window.showInformationMessage('CukeRust: Step Index rebuilt');
+    refreshStatusBar(status, manager);
+    status.command = 'cukerust.rebuildStatic';
   });
 
   context.subscriptions.push(disposable);
 
   const devCmd = vscode.commands.registerCommand('cukerust.dev.extractIndex', async () => {
     try {
-      const wasm = await import('../native/cukerust-wasm');
+      const wasm = await manager.ensureWasm();
       const files = [
         {
           path: 'src/steps_attr.rs',
@@ -50,13 +54,84 @@ export function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(devCmd);
 
+  // Clear ambiguity memory
+  context.subscriptions.push(vscode.commands.registerCommand('cukerust.clearAmbiguityMemory', () => manager.clearAmbiguityChoices()));
+
+  // Force static scan rebuild (one-click fallback)
+  context.subscriptions.push(vscode.commands.registerCommand('cukerust.rebuildStatic', async () => {
+    await manager.rebuildAllStaticScan();
+    for (const doc of vscode.workspace.textDocuments) {
+      await manager.refreshDiagnostics(doc);
+    }
+    vscode.window.showInformationMessage('CukeRust: Rebuilt Step Index via Static Scan');
+  }));
+
+  // Dev micro-benchmark for matching modes
+  context.subscriptions.push(vscode.commands.registerCommand('cukerust.dev.matchBenchmark', async () => {
+    const folders = vscode.workspace.workspaceFolders ?? [];
+    if (folders.length === 0) { vscode.window.showWarningMessage('CukeRust: no workspace folder'); return; }
+    const folder = folders[0];
+    // Ensure index exists
+    await manager.rebuildForFolder(folder);
+    const index = manager.getIndex(folder);
+    if (!index) { vscode.window.showWarningMessage('CukeRust: no Step Index'); return; }
+    // Build a small query corpus from current steps
+    const queries = index.steps.slice(0, 50).map(s => ({ kind: s.kind, body: s.regex.replace(/^\^|\$$/g, '') }));
+    const kinds: ('Given'|'When'|'Then')[] = ['Given', 'When', 'Then'];
+    const modes: Array<'anchored'|'smart'|'substring'> = ['anchored','smart','substring'];
+    const results: Record<string, number> = {};
+    const runOnce = (mode: 'anchored'|'smart'|'substring') => {
+      const t0 = Date.now();
+      for (let r = 0; r < 200; r++) {
+        for (const q of queries) {
+          for (const k of kinds) {
+            // local matcher replicating manager.matchStep but explicit mode
+            for (const s of index.steps) {
+              if (s.kind !== k) continue;
+              try {
+                let pattern = s.regex;
+                if (mode === 'anchored') {
+                  if (!pattern.startsWith('^')) pattern = '^' + pattern;
+                  if (!pattern.endsWith('$')) pattern = pattern + '$';
+                } else if (mode === 'smart') {
+                  const anchored = s.regex.startsWith('^') || s.regex.endsWith('$');
+                  pattern = anchored ? s.regex : `^${s.regex}$`;
+                } // substring uses raw
+                const re = new RegExp(pattern);
+                re.test(q.body);
+              } catch {}
+            }
+          }
+        }
+      }
+      return Date.now() - t0;
+    };
+    for (const m of modes) {
+      results[m] = runOnce(m);
+    }
+    console.log('CukeRust match benchmark (ms):', results);
+    vscode.window.showInformationMessage(`CukeRust: match benchmark ms ${JSON.stringify(results)}`);
+  }));
+
+  // Runtime-List Mode: list steps via runner
+  context.subscriptions.push(vscode.commands.registerCommand('cukerust.listStepsViaRunner', async () => {
+    const folders = vscode.workspace.workspaceFolders ?? [];
+    if (folders.length === 0) { vscode.window.showWarningMessage('CukeRust: no workspace folder'); return; }
+    await manager.listStepsViaRunner(folders[0]);
+    for (const doc of vscode.workspace.textDocuments) {
+      await manager.refreshDiagnostics(doc);
+    }
+    refreshStatusBar(status, manager);
+  }));
+
   // Rebuild on activation for current workspace
   manager.rebuildAll().then(async () => {
     for (const doc of vscode.workspace.textDocuments) {
       await manager.refreshDiagnostics(doc);
     }
     manager.initWatchers();
-    refreshStatusBar(status);
+    refreshStatusBar(status, manager);
+    status.command = 'cukerust.rebuildStatic';
   });
 
   // Diagnostics refresh hooks
@@ -70,33 +145,63 @@ export function activate(context: vscode.ExtensionContext) {
   // Config/status updates
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration('cukerust')) refreshStatusBar(status);
+      if (e.affectsConfiguration('cukerust')) refreshStatusBar(status, manager);
     }),
   );
 
   // Go-to-definition
   context.subscriptions.push(
     vscode.languages.registerDefinitionProvider({ language: 'feature' }, {
-      provideDefinition(doc, position) {
+      async provideDefinition(doc, position) {
         const folder = vscode.workspace.getWorkspaceFolder(doc.uri);
-        const index = manager.getIndex(folder);
+        const index = manager.getIndex(folder ?? null);
         if (!index) return undefined;
+        const text = doc.getText();
+        const configured = vscode.workspace.getConfiguration('cukerust', folder ?? undefined).get<'auto'|'en'|'es'>('dialect', 'auto');
+        const code = detectDialect(text, configured);
+        const dialect = getDialect(code);
+        const stepRe = buildStepKeywordRegex(dialect);
         const line = doc.lineAt(position.line).text;
-        const m = /^(Given|When|Then|And|But)\s+(.+)$/.exec(line);
+        const m = stepRe.exec(line);
         if (!m) return undefined;
-        let kind: 'Given' | 'When' | 'Then' = 'Given';
         const keyword = m[1];
         const body = m[2];
-        if (keyword === 'Given' || keyword === 'When' || keyword === 'Then') kind = keyword as any;
-        // simplistic: search backward for last explicit keyword
-        if (keyword === 'And' || keyword === 'But') {
+        let kind: 'Given' | 'When' | 'Then' = 'Given';
+        if (dialect.Given.includes(keyword)) kind = 'Given';
+        else if (dialect.When.includes(keyword)) kind = 'When';
+        else if (dialect.Then.includes(keyword)) kind = 'Then';
+        else if (dialect.And.includes(keyword) || dialect.But.includes(keyword)) {
           for (let i = position.line - 1; i >= 0; i--) {
             const l = doc.lineAt(i).text;
-            const mm = /^(Given|When|Then)\b/.exec(l);
-            if (mm) { kind = mm[1] as any; break; }
+            const mm = stepRe.exec(l);
+            if (mm) {
+              const kw = mm[1];
+              if (dialect.Given.includes(kw)) { kind = 'Given'; break; }
+              if (dialect.When.includes(kw)) { kind = 'When'; break; }
+              if (dialect.Then.includes(kw)) { kind = 'Then'; break; }
+            }
           }
         }
-        const matches = manager.matchStep(index.steps, kind, body);
+        // Outline resolution
+        const oc = extractOutlineContext(text, position.line);
+        let bodies: string[] = [body];
+        if (oc.isOutline && oc.examples.length > 0 && /<[^>]+>/.test(body)) {
+          bodies = oc.examples.map((row) => resolvePlaceholders(body, row));
+        }
+        let matches: typeof index.steps = [];
+        for (const b of bodies) {
+          const ms = manager.matchStep(index.steps, kind, b);
+          matches = matches.concat(ms);
+        }
+        // Ambiguity memory key: kind + original body
+        const key = `${kind}|${body}`;
+        const remembered = manager.getAmbiguityChoice(key);
+        if (remembered) {
+          const root = folder?.uri ?? vscode.Uri.file('/');
+          const target = vscode.Uri.joinPath(root, remembered.file);
+          const pos = new vscode.Position(Math.max(0, (remembered.line ?? 1) - 1), 0);
+          return new vscode.Location(target, pos);
+        }
         if (matches.length === 0) return undefined;
         const targets = matches.map((s) => {
           const root = folder?.uri ?? vscode.Uri.file('/');
@@ -104,6 +209,18 @@ export function activate(context: vscode.ExtensionContext) {
           const pos = new vscode.Position(Math.max(0, (s.line ?? 1) - 1), 0);
           return new vscode.Location(target, pos);
         });
+        if (targets.length === 1) return targets;
+        // Present quick pick and remember choice
+        const items = matches.map((s) => ({ label: `${s.file}:${s.line}`, description: `${s.kind} /${s.regex}/`, s }));
+        const picked = await vscode.window.showQuickPick(items, { placeHolder: 'Multiple step definitions found. Choose one to remember.' });
+        if (picked) {
+          const s = picked.s;
+          manager.setAmbiguityChoice(`${kind}|${body}`, { file: s.file, line: s.line });
+          const root = folder?.uri ?? vscode.Uri.file('/');
+          const target = vscode.Uri.joinPath(root, s.file);
+          const pos = new vscode.Position(Math.max(0, (s.line ?? 1) - 1), 0);
+          return new vscode.Location(target, pos);
+        }
         return targets;
       },
     }),
@@ -116,7 +233,7 @@ export function activate(context: vscode.ExtensionContext) {
       {
         provideCompletionItems(doc, position) {
           const folder = vscode.workspace.getWorkspaceFolder(doc.uri);
-          const index = manager.getIndex(folder);
+          const index = manager.getIndex(folder ?? null);
           if (!index) return [];
           const items: vscode.CompletionItem[] = [];
           for (const s of index.steps) {
@@ -138,23 +255,39 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.languages.registerHoverProvider({ language: 'feature' }, {
       provideHover(doc, position) {
         const folder = vscode.workspace.getWorkspaceFolder(doc.uri);
-        const index = manager.getIndex(folder);
+        const index = manager.getIndex(folder ?? null);
         if (!index) return undefined;
+        const text = doc.getText();
+        const configured = vscode.workspace.getConfiguration('cukerust', folder ?? undefined).get<'auto'|'en'|'es'>('dialect', 'auto');
+        const code = detectDialect(text, configured);
+        const dialect = getDialect(code);
+        const stepRe = buildStepKeywordRegex(dialect);
         const line = doc.lineAt(position.line).text;
-        const m = /^(Given|When|Then|And|But)\s+(.+)$/.exec(line);
+        const m = stepRe.exec(line);
         if (!m) return undefined;
         const body = m[2];
+        const oc = extractOutlineContext(text, position.line);
+        const bodies: string[] = (oc.isOutline && oc.examples.length > 0 && /<[^>]+>/.test(body))
+          ? oc.examples.map((row) => resolvePlaceholders(body, row))
+          : [body];
         const kinds: ('Given'|'When'|'Then')[] = ['Given','When','Then'];
         for (const kind of kinds) {
-          const matches = manager.matchStep(index.steps, kind, body);
-          if (matches.length) {
-            const s = matches[0];
-            const md = new vscode.MarkdownString();
-            md.appendMarkdown(`**${s.kind}**  \\`);
-            md.appendMarkdown(`/${s.regex}/  \\`);
-            md.appendMarkdown(`${s.file}:${s.line}`);
-            md.isTrusted = false;
-            return new vscode.Hover(md);
+          for (const b of bodies) {
+            const matches = manager.matchStep(index.steps, kind, b);
+            if (matches.length) {
+              const s = matches[0];
+              const md = new vscode.MarkdownString();
+              md.appendMarkdown(`**${s.kind}**  \\\n`);
+              md.appendMarkdown(`/${s.regex}/  \\\n`);
+              if ((s as any).function) md.appendMarkdown(`fn: ${(s as any).function}  \\\n`);
+              md.appendMarkdown(`${s.file}:${s.line}`);
+              if (b !== body) {
+                md.appendMarkdown(`  \\\n`);
+                md.appendMarkdown(`Resolved: ${b}`);
+              }
+              md.isTrusted = false;
+              return new vscode.Hover(md);
+            }
           }
         }
         return undefined;
@@ -179,11 +312,15 @@ export function activate(context: vscode.ExtensionContext) {
         return;
       }
       const folder = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(featurePath));
-      const template = vscode.workspace.getConfiguration('cukerust', folder).get<string>('run.template', 'echo Running ${scenarioName} in ${featurePath}');
-      const cmd = template
-        .replaceAll('${featurePath}', shellQuote(featurePath))
-        .replaceAll('${scenarioName}', shellQuote(scenarioName))
-        .replaceAll('${tags}', '');
+      const cfg = vscode.workspace.getConfiguration('cukerust', folder);
+      let cmd = await resolveRunCommand(folder, featurePath, scenarioName, cfg);
+      if (!cmd) {
+        const template = cfg.get<string>('run.template', 'echo Running ${scenarioName} in ${featurePath}');
+        cmd = template
+          .replace(/\$\{featurePath\}/g, shellQuote(featurePath))
+          .replace(/\$\{scenarioName\}/g, shellQuote(scenarioName))
+          .replace(/\$\{tags\}/g, '');
+      }
       const term = vscode.window.createTerminal({ name: 'CukeRust' });
       term.show();
       term.sendText(cmd);
@@ -198,8 +335,11 @@ export function toSnippet(regex: string): string {
   let idx = 1;
   return regex
     .replace(/\^|\$/g, '')
-    .replace(/\\d\+/g, () => `\${${idx++}:number}`)
-    .replace(/\(\.\+\)/g, () => `\${${idx++}:value}`);
+    // Replace grouped numeric captures first to drop parentheses
+    .replace(/\(\\d\+\)/g, () => `${'${'}${idx++}:number}`)
+    .replace(/\(\.\+\)/g, () => `${'${'}${idx++}:value}`)
+    // Fallback: bare \\d+ occurrences
+    .replace(/\\d\+/g, () => `${'${'}${idx++}:number}`);
 }
 
 class ScenarioCodeLensProvider implements vscode.CodeLensProvider {
@@ -231,8 +371,26 @@ function extractScenarioName(doc: vscode.TextDocument, line: number): string | u
 }
 
 function shellQuote(s: string): string {
-  // Basic POSIX-like quoting
+  // Cross-shell best-effort quoting
+  if (process.platform === 'win32') {
+    // Use double quotes and escape internal quotes
+    const q = s.replace(/"/g, '""');
+    return `"${q}"`;
+  }
+  // POSIX-like quoting
   if (s === '') return "''";
   if (/^[A-Za-z0-9_@%+=:,./-]+$/.test(s)) return s; // safe
-  return `'${s.replaceAll("'", `'"'"'`)}'`;
+  return `'${s.replace(/'/g, `'"'"'`)}'`;
+}
+
+function refreshStatusBar(status: vscode.StatusBarItem, manager: StepIndexManager) {
+  const folders = vscode.workspace.workspaceFolders ?? [];
+  const active = vscode.window.activeTextEditor?.document;
+  const folder = active ? vscode.workspace.getWorkspaceFolder(active.uri) : folders[0];
+  const mode = vscode.workspace.getConfiguration('cukerust', folder ?? undefined).get('discovery.mode', 'auto');
+  const stale = manager.getArtifactStale(folder ?? null) ? ' (stale artifact)' : '';
+  const ms = manager.getLastBuildMs(folder ?? null);
+  const msText = ms ? ` ${ms}ms` : '';
+  status.text = `CukeRust: ${String(mode)}${stale}${msText}`;
+  if (vscode.workspace.getConfiguration('cukerust', folder ?? undefined).get<boolean>('statusbar.showMode', true)) status.show(); else status.hide();
 }

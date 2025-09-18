@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { toSnippet } from '../extension';
+import { toSnippet } from '../utils';
 
 describe('toSnippet', () => {
   it('converts numeric captures to number placeholders', () => {

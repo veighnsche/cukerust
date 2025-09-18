@@ -15,27 +15,27 @@ This is the high‑level plan for building, testing, documenting, and releasing 
   - WASM build wiring via `wasm-pack`; TS bundling via `tsup`.
   - Base CI, licenses, repo hygiene files.
 
-- [ ] M1 — Rust BDD harness + Step Index (WASM core)
+- [x] M1 — Rust BDD harness + Step Index (WASM core)
   - Establish Rust BDD harness (`cucumber` + `tokio`) and initial `features/` for parsing behaviors.
   - Implement minimal JSON FFI in `cukerust_wasm` that accepts `{ files: {path,text}[] }` and returns `StepIndex` per `.specs/00_cukerust.md`.
   - Parsing surface: `#[given/when/then]`, `.given/.when/.then`, `given!/when!/then!` including raw string forms.
   - Deliverables: green BDD run; `extract_step_index(input) -> StepIndex` exported from WASM.
   - Performance target: acceptable on small repos (functional correctness prioritized).
 
-- [ ] M2 — Extension integration (diagnostics + go‑to‑definition)
+- [x] M2 — Extension integration (diagnostics + go‑to‑definition)
   - TS: discover candidate Rust files, pass to WASM, keep in‑memory Step Index, debounce updates.
   - Surface diagnostics for undefined/ambiguous steps; implement go‑to‑definition.
   - Deliverable: end‑to‑end features working on a sample workspace.
 
-- [ ] M3 — Completion and Hover
+- [x] M3 — Completion and Hover
   - Provide completion items from Step Index with snippet placeholders for captures.
   - Provide rich hovers (kind, regex, file:line, function?).
 
-- [ ] M4 — Matching performance pass (optional offload)
+- [x] M4 — Matching performance pass (optional offload)
   - Evaluate tiered matching (anchored/smart/relaxed). If needed, offload matching to Rust; otherwise keep in TS.
   - Micro‑benchmarks and flamegraphs; avoid regressions.
 
-- [ ] M5 — Run helpers (CodeLens/commands)
+- [x] M5 — Run helpers (CodeLens/commands)
   - Integrate configurable run commands per workspace folder.
   - Ensure shell‑safe placeholders for feature/scenario/tags.
 
@@ -61,14 +61,14 @@ This is the high‑level plan for building, testing, documenting, and releasing 
 - [ ] Extension‑host integration (`@vscode/test-electron`)
   - Activate extension, verify diagnostics, go‑to‑def, completion, hovers using fixtures.
 
-- [ ] Rust unit tests (`cargo test`)
+- [x] Rust unit tests (`cargo test`)
   - `cukerust_core`: pure logic tests.
   - `cukerust_wasm`: wrapper behavior and JSON in/out (or tested via Node importing WASM).
 
-- [ ] WASM tests
+- [x] WASM tests
   - `wasm-bindgen-test --node` or black‑box tests from TS importing the built module.
 
-- [ ] Rust BDD (cucumber + Gherkin)
+- [x] Rust BDD (cucumber + Gherkin)
   - Feature files under `rust/crates/cukerust_core/features/**`.
   - Harness `rust/crates/cukerust_core/tests/bdd.rs`.
   - Run: `cargo test -p cukerust_core --test bdd` (also part of `cargo test --workspace`).

@@ -20,9 +20,7 @@ pub fn extract_step_index(input_json: &str) -> String {
 }
 
 fn error_json(msg: &str) -> String {
-    format!("{{\"error\":\"{}\"}}", escape_json(msg))
+    serde_json::json!({ "error": msg }).to_string()
 }
 
-fn escape_json(s: &str) -> String {
-    s.replace('\\', "\\\\").replace('"', "\\\"")
-}
+// No custom escaping needed; serde_json handles it.

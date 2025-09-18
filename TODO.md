@@ -10,6 +10,14 @@ This plan builds on the completed TODO‑1 (Weeks 1–4) and advances the featur
 - Update docs whenever contracts change (Step Index, FFI, behaviors).
 - Measure performance and regress only intentionally with documented trade‑offs.
 
+
+## Status Summary (as of 2025‑09‑17)
+
+- [x] Core M1 complete: `cukerust_core` BDD suite is green; extractor behaviors implemented and verified.
+- [x] WASM FFI `extract_step_index` wired in `cukerust_wasm` and tested (JSON round‑trip).
+- [x] Extension basics present: static scan, diagnostics, go‑to‑definition, completion, hover, and scenario CodeLens are implemented in `extension/src/`.
+- [ ] Week 5–8 items below (Outlines, Dialects, Artifact UX, Ambiguity UX, Runtime‑List, Run Matrix, Performance pass, Hardening/Release) are pending.
+
 ---
 
 ## Week 5 — Scenario Outlines, Dialects, Artifact UX, Ambiguity UX (M9)

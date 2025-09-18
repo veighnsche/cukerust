@@ -1,7 +1,8 @@
 use regex::Regex;
+use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum StepKind {
     Given,
     When,
@@ -34,12 +35,10 @@ pub struct Stats {
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
 pub struct ByKind {
-    #[serde(rename = "Given")]
     pub given: usize,
-    #[serde(rename = "When")]
     pub when: usize,
-    #[serde(rename = "Then")]
     pub then: usize,
 }
 
@@ -72,7 +71,7 @@ impl StepIndex {
         use std::collections::HashMap;
         let mut map: HashMap<(StepKind, &str), usize> = HashMap::new();
         for s in &steps {
-            *map.entry((s.kind.clone(), s.regex.as_str())).or_insert(0) += 1;
+            *map.entry((s.kind, s.regex.as_str())).or_insert(0) += 1;
         }
         stats.ambiguous = map.values().filter(|&&c| c > 1).count();
         // Timestamp for artifact freshness consumers (skip on wasm32)
@@ -84,21 +83,35 @@ impl StepIndex {
     }
 }
 
+// Pre-compiled detectors for performance and to avoid repeated unwraps
+static BUILDER_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"\.(given|when|then)\s*(?:::<[^>]+>)?\s*\(")
+        .expect("valid builder chain regex")
+});
+static MACRO_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"\b(given|when|then)!\s*\(")
+        .expect("valid step macro regex")
+});
+static ATTR_BLOCK_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new("(?s)#\\[\\s*(given|when|then)[^\\]]*\\]")
+        .expect("valid attribute block regex")
+});
+static FN_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?m)^\s*(?:pub(?:\([^)]+\))?\s+)?(?:async\s+)?fn\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(")
+        .expect("valid function name regex")
+});
+
 pub fn extract_step_index_from_files(files: &[SourceFile]) -> StepIndex {
     let mut out: Vec<StepEntry> = Vec::new();
 
-    // Pre-compile detectors for builder/macro lines (detect call and kind); allow generics like .given::<T>(
-    let builder_re = Regex::new("\\.(given|when|then)\\s*(?:::<[^>]+>)?\\s*\\(").unwrap();
-    let macro_re = Regex::new("\\b(given|when|then)!\\s*\\(").unwrap();
-    // Multi-line attribute block matcher (DOTALL)
-    let attr_block_re = Regex::new("(?s)#\\[\\s*(given|when|then)[^\\]]*\\]").unwrap();
+    // Use statics defined above to avoid recompiling regexes per invocation.
 
     for sf in files {
         let stripped = strip_comments_preserving_strings(&sf.text);
         for (i, line) in stripped.lines().enumerate() {
             let lineno = i + 1;
             // Builder chains: .given/.when/.then(r"…"); collect all matches in a line
-            for cap in builder_re.captures_iter(line) {
+            for cap in BUILDER_RE.captures_iter(line) {
                 let kind = kind_from_lower(cap.get(1).map(|m| m.as_str()).unwrap_or(""));
                 if let Some(m0) = cap.get(0) {
                     let after = &line[m0.end()..];
@@ -118,7 +131,7 @@ pub fn extract_step_index_from_files(files: &[SourceFile]) -> StepIndex {
             }
 
             // Macros: given!/when!/then!(r"…", ...); collect all matches in a line
-            for cap in macro_re.captures_iter(line) {
+            for cap in MACRO_RE.captures_iter(line) {
                 let kind = kind_from_lower(cap.get(1).map(|m| m.as_str()).unwrap_or(""));
                 if let Some(m0) = cap.get(0) {
                     let after = &line[m0.end()..];
@@ -139,7 +152,7 @@ pub fn extract_step_index_from_files(files: &[SourceFile]) -> StepIndex {
         }
 
         // Attribute macros: scan across the stripped file text for multi-line #[given/when/then(...)] blocks
-        for cap in attr_block_re.captures_iter(&stripped) {
+        for cap in ATTR_BLOCK_RE.captures_iter(&stripped) {
             let kind = kind_from_lower(cap.get(1).map(|m| m.as_str()).unwrap_or(""));
             if let Some(m0) = cap.get(0) {
                 let matched = &stripped[m0.start()..m0.end()];
@@ -151,8 +164,7 @@ pub fn extract_step_index_from_files(files: &[SourceFile]) -> StepIndex {
                         // best-effort function name capture from the next few lines
                         let suffix = &stripped[m0.end()..];
                         let fn_scope: String = suffix.lines().take(4).collect::<Vec<_>>().join("\n");
-                        let fn_re = Regex::new(r"(?m)^\s*fn\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(").unwrap();
-                        let function = fn_re
+                        let function = FN_RE
                             .captures(&fn_scope)
                             .and_then(|c| c.get(1).map(|m| m.as_str().to_string()));
                         out.push(StepEntry {
