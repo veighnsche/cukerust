@@ -1,8 +1,8 @@
 {
   "steps": [
-    { "kind": "Given", "regex": "^I have (\\d+) cukes$", "file": "src/steps.rs", "line": 1 },
-    { "kind": "When", "regex": "^I eat (\\d+)$", "file": "src/steps.rs", "line": 2 },
-    { "kind": "Then", "regex": "^done$", "file": "src/steps.rs", "line": 3 }
+    { "kind": "Given", "regex": "^index has (\\d+) steps$", "file": "src/steps.rs", "line": 3 },
+    { "kind": "When", "regex": "^noop$", "file": "src/steps.rs", "line": 8 },
+    { "kind": "Then", "regex": "^the index contains (\\d+) steps$", "file": "src/steps.rs", "line": 11 }
   ],
   "stats": {
     "total": 3,

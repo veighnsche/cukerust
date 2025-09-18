@@ -1,5 +1,5 @@
 Feature: Sample
-  Scenario: Step detection
-    Given I have 1 cukes
-    When I eat 1
-    Then done
+  Scenario: Index count basic
+    Given index has 3 steps
+    When noop
+    Then the index contains 3 steps

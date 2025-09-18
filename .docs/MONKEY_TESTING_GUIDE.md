@@ -31,9 +31,12 @@ This guide helps you stress, poke, and try to break CukeRust in realistic ways b
   - Node.js and npm
   - VS Code CLI `code` on PATH
   - `wasm-pack` for the WASM build (`cargo install wasm-pack`)
+  - Rust toolchain (`cargo` on PATH) — the script will run `cargo check`
 - The showcase workspace includes:
   - `features/` with `sample.feature` and `outline.feature`
-  - `src/steps.rs` with sample Given/When/Then definitions (attribute/builder/macro styles represented)
+  - A real Cargo crate under `extension/test-fixtures/basic/` so rust-analyzer can compile it
+  - `src/lib.rs` defines demo `given!`, `when!`, `then!` macros and a tiny `StepBuilder`
+  - `src/steps.rs` uses macros and builder calls for discovery
   - `docs/cukerust/step_index.json` for Artifact mode
   - `docs/cukerust/run_matrix.md` as a placeholder for the run matrix
 
