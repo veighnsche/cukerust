@@ -1,5 +1,21 @@
 # CukeRust — Gherkin × Rust BDD for VS Code
 
+[
+![CI](https://img.shields.io/github/actions/workflow/status/veighnsche/cukerust/ci.yml?branch=main&logo=github&label=CI)
+](https://github.com/veighnsche/cukerust/actions/workflows/ci.yml)
+[
+![MSRV 1.89.0](https://img.shields.io/badge/MSRV-1.89.0-orange)
+](https://github.com/veighnsche/cukerust#msrv)
+[
+![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/Veighnsche.cukerust?label=VS%20Marketplace)
+](https://marketplace.visualstudio.com/items?itemName=Veighnsche.cukerust)
+[
+![Installs](https://img.shields.io/visual-studio-marketplace/i/Veighnsche.cukerust?label=Installs)
+](https://marketplace.visualstudio.com/items?itemName=Veighnsche.cukerust)
+[
+![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)
+](https://github.com/veighnsche/cukerust#license)
+
 ![CukeRust Logo](images/LOGO.png)
 
 Zero‑config Gherkin authoring with Rust step integration. Diagnostics, go‑to‑definition, completion, hovers, and run helpers — all without executing project code unless you explicitly opt in.

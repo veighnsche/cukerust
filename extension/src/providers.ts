@@ -8,8 +8,15 @@ export function registerProviders(
   manager: StepIndexManager,
 ) {
   // Go-to-definition
+  const ds: vscode.DocumentSelector = [
+    { language: 'feature' },
+    { language: 'gherkin' as any },
+    { language: 'cucumber' as any },
+    { pattern: '**/*.feature' },
+  ];
+
   context.subscriptions.push(
-    vscode.languages.registerDefinitionProvider({ language: 'feature' }, {
+    vscode.languages.registerDefinitionProvider(ds, {
       async provideDefinition(doc, position) {
         const folder = vscode.workspace.getWorkspaceFolder(doc.uri);
         const index = manager.getIndex(folder ?? null);
@@ -87,7 +94,7 @@ export function registerProviders(
   // Completion
   context.subscriptions.push(
     vscode.languages.registerCompletionItemProvider(
-      { language: 'feature' },
+      ds,
       {
         provideCompletionItems(doc, position) {
           const folder = vscode.workspace.getWorkspaceFolder(doc.uri);
@@ -112,7 +119,7 @@ export function registerProviders(
 
   // Hover
   context.subscriptions.push(
-    vscode.languages.registerHoverProvider({ language: 'feature' }, {
+    vscode.languages.registerHoverProvider(ds, {
       provideHover(doc, position) {
         const folder = vscode.workspace.getWorkspaceFolder(doc.uri);
         const index = manager.getIndex(folder ?? null);
@@ -137,15 +144,36 @@ export function registerProviders(
             if (matches.length) {
               const s = matches[0];
               const md = new vscode.MarkdownString();
-              md.appendMarkdown(`**${s.kind}**  \\\n`);
-              md.appendMarkdown(`/${s.regex}/  \\\n`);
-              if ((s as any).function) md.appendMarkdown(`fn: ${(s as any).function}  \\\n`);
-              md.appendMarkdown(`${s.file}:${s.line}`);
+              md.isTrusted = true;
+              // Title
+              md.appendMarkdown(`### ${s.kind}\n`);
+              // Regex block
+              md.appendCodeblock(s.regex, 'regex');
+              // File link
+              const root = folder?.uri ?? vscode.Uri.file('/');
+              const target = vscode.Uri.joinPath(root, s.file);
+              const lineNum = Math.max(0, (s.line ?? 1) - 1);
+              const openCmd = `command:vscode.open?${encodeURIComponent(JSON.stringify([target.with({ fragment: `L${lineNum + 1}` })]))}`;
+              md.appendMarkdown(`Source: [${s.file}:${s.line}](${openCmd})\n`);
+              // Resolved outline value if applicable
               if (b !== body) {
-                md.appendMarkdown(`  \\\n`);
-                md.appendMarkdown(`Resolved: ${b}`);
+                md.appendMarkdown(`Resolved: \`${b}\`\n`);
               }
-              md.isTrusted = false;
+              // Capture groups preview
+              try {
+                const re = new RegExp(s.regex.replace(/^\^|\$$/g, ''));
+                const mm = re.exec(b);
+                if (mm && mm.length > 1) {
+                  md.appendMarkdown('\n**Captures**\n');
+                  for (let i = 1; i < mm.length; i++) {
+                    md.appendMarkdown(`- $${i}: \`${mm[i]}\`\n`);
+                  }
+                }
+              } catch {}
+              // Ambiguity note
+              if (matches.length > 1) {
+                md.appendMarkdown(`\n> Note: ${matches.length - 1} other candidate(s) exist. Use Go to Definition to disambiguate or run \`CukeRust: Clear Ambiguity Choices\`.\n`);
+              }
               return new vscode.Hover(md);
             }
           }
@@ -157,7 +185,7 @@ export function registerProviders(
 
   // CodeLens for running scenarios
   context.subscriptions.push(
-    vscode.languages.registerCodeLensProvider({ language: 'feature' }, new ScenarioCodeLensProvider()),
+    vscode.languages.registerCodeLensProvider(ds, new ScenarioCodeLensProvider()),
   );
 }
 

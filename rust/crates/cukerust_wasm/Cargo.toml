@@ -2,9 +2,10 @@
 name = "cukerust_wasm"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.89"
 license = "MIT OR Apache-2.0"
 description = "WASM bindings for CukeRust core: extract step index from Rust source for the VS Code extension"
-repository = "https://github.com/your-org/cukerust"
+repository = "https://github.com/veighnsche/cukerust"
 
 [lib]
 crate-type = ["cdylib", "rlib"]

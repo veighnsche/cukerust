@@ -1,5 +1,21 @@
 # CukeRust — Zero‑Config Gherkin × Rust BDD for VS Code
 
+[
+![CI](https://img.shields.io/github/actions/workflow/status/veighnsche/cukerust/ci.yml?branch=main&logo=github&label=CI)
+](https://github.com/veighnsche/cukerust/actions/workflows/ci.yml)
+[
+![MSRV 1.89.0](https://img.shields.io/badge/MSRV-1.89.0-orange)
+](#msrv)
+[
+![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/Veighnsche.cukerust?label=VS%20Marketplace)
+](https://marketplace.visualstudio.com/items?itemName=Veighnsche.cukerust)
+[
+![Installs](https://img.shields.io/visual-studio-marketplace/i/Veighnsche.cukerust?label=Installs)
+](https://marketplace.visualstudio.com/items?itemName=Veighnsche.cukerust)
+[
+![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)
+](#license)
+
 A VS Code extension that delivers first‑class Gherkin authoring with Rust step integration. It is designed to work out‑of‑the‑box (zero configuration) without writing to your repository or executing project code unless you explicitly opt in.
 
 Status: Draft v0.2.0 (spec). Audience: VS Code extension developers (TypeScript), Rust BDD maintainers, CI owners, repo maintainers, QA.
@@ -302,6 +318,22 @@ Try it
   - Run the BDD harness only: `cargo test -p cukerust_core --test bdd`
   - Run all Rust tests: `cargo test --workspace`
 - See the detailed spec at `.specs/01_rust_bdd_tdd.md`.
+
+## MSRV
+
+The Rust crates in this repository target a Minimum Supported Rust Version (MSRV) of 1.89.0.
+
+- Enforced in CI via a dedicated MSRV job.
+- Declared in crate manifests via `rust-version = "1.89"`.
+
+Test locally with Rust 1.89:
+
+```
+rustup toolchain install 1.89.0
+rustup override set 1.89.0
+cargo check --workspace --all-features
+cargo test --workspace --all-features
+```
 
 ## License
 

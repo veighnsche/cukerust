@@ -8,10 +8,10 @@
   "license": "MIT OR Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/your-org/cukerust.git"
+    "url": "git+https://github.com/veighnsche/cukerust.git"
   },
-  "homepage": "https://github.com/your-org/cukerust",
-  "bugs": { "url": "https://github.com/your-org/cukerust/issues" },
+  "homepage": "https://github.com/veighnsche/cukerust",
+  "bugs": { "url": "https://github.com/veighnsche/cukerust/issues" },
   "engines": { "vscode": "^1.92.0" },
   "categories": ["Programming Languages", "Testing", "Other"],
   "main": "./out/extension.js",
@@ -44,6 +44,15 @@
         "language": "feature",
         "scopeName": "source.gherkin",
         "path": "./syntaxes/gherkin.tmLanguage.json"
+      },
+      {
+        "scopeName": "cukerust.gherkin.injections",
+        "path": "./syntaxes/gherkin-injections.tmLanguage.json",
+        "injectTo": [
+          "source.gherkin",
+          "text.gherkin",
+          "text.gherkin.feature"
+        ]
       }
     ],
     "commands": [
@@ -155,6 +164,17 @@
           "default": "",
           "description": "Shell command to list steps as JSON StepIndex (Runtime-List mode)."
         }
+      }
+    },
+    "configurationDefaults": {
+      "[feature]": {
+        "editor.semanticHighlighting.enabled": true
+      },
+      "[gherkin]": {
+        "editor.semanticHighlighting.enabled": true
+      },
+      "[cucumber]": {
+        "editor.semanticHighlighting.enabled": true
       }
     }
   },

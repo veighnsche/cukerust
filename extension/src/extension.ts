@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { StepIndexManager } from './indexer';
 import { registerCommands } from './commands';
 import { registerProviders } from './providers';
+import { registerSemanticTokens } from './semantics';
 
 export function activate(context: vscode.ExtensionContext) {
   const manager = new StepIndexManager(context);
@@ -174,6 +175,7 @@ export function activate(context: vscode.ExtensionContext) {
   // Providers and core commands are registered via modules
   registerProviders(context, manager);
   registerCommands(context, manager, status, output);
+  registerSemanticTokens(context);
 }
 
 export function deactivate() {}
