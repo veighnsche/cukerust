@@ -13,7 +13,10 @@ export class StepIndexManager {
   private lastBuildMs = new Map<string, number>();
   private forceStatic = false;
 
-  constructor(private context: vscode.ExtensionContext) {}
+  constructor(private context: vscode.ExtensionContext) {
+    // Ensure diagnostics collection is disposed with the extension
+    this.context.subscriptions.push(this.diag);
+  }
 
 
   async ensureWasm(): Promise<any> {
@@ -76,7 +79,16 @@ export class StepIndexManager {
     }
     // Static scan
     const t0 = Date.now();
-    const wasm = await this.ensureWasm();
+    let wasm: any;
+    try {
+      wasm = await this.ensureWasm();
+    } catch (e) {
+      vscode.window.showErrorMessage(`CukeRust: failed to load WASM module: ${String(e)}`);
+      this.indexes.set(folder.uri.fsPath, { steps: [], stats: { total: 0, by_kind: { Given: 0, When: 0, Then: 0 }, ambiguous: 0 } } as unknown as any);
+      this.artifactStale.set(folder.uri.fsPath, false);
+      this.lastBuildMs.set(folder.uri.fsPath, Date.now() - t0);
+      return;
+    }
     const include = new vscode.RelativePattern(folder, '**/*.rs');
     const ignore = vscode.workspace.getConfiguration('cukerust', folder).get<string[]>('ignoreGlobs', []);
     const excludes = ['**/target/**', ...ignore];
@@ -96,8 +108,20 @@ export class StepIndexManager {
       }
     }
     const payload = JSON.stringify({ files: inputs });
-    const result = wasm.extract_step_index(payload);
-    const index: StepIndex = JSON.parse(result);
+    let result: string;
+    try {
+      result = wasm.extract_step_index(payload);
+    } catch (e) {
+      vscode.window.showErrorMessage(`CukeRust: extract_step_index failed: ${String(e)}`);
+      return;
+    }
+    let index: StepIndex;
+    try {
+      index = JSON.parse(result);
+    } catch (e) {
+      vscode.window.showErrorMessage(`CukeRust: invalid Step Index JSON produced: ${String(e)}`);
+      return;
+    }
     index.steps = dedupeSteps(index.steps);
     this.indexes.set(folder.uri.fsPath, index);
     this.artifactStale.set(folder.uri.fsPath, false);
@@ -158,6 +182,8 @@ export class StepIndexManager {
   async refreshDiagnostics(doc: vscode.TextDocument): Promise<void> {
     if (doc.languageId !== 'feature') return;
     const folder = vscode.workspace.getWorkspaceFolder(doc.uri) ?? null;
+    const enabled = vscode.workspace.getConfiguration('cukerust', folder ?? undefined).get<boolean>('diagnostics.enabled', true);
+    if (!enabled) { this.diag.delete(doc.uri); return; }
     const index = this.getIndex(folder);
     if (!index) {
       this.diag.delete(doc.uri);
@@ -166,7 +192,9 @@ export class StepIndexManager {
     const diags: vscode.Diagnostic[] = [];
     const text = doc.getText();
     const lines = text.split(/\r?\n/);
-    const configured = vscode.workspace.getConfiguration('cukerust', folder ?? undefined).get<'auto'|'en'|'es'>('dialect', 'auto');
+    const cfg = vscode.workspace.getConfiguration('cukerust', folder ?? undefined);
+    const configured = cfg.get<'auto'|'en'|'es'>('dialect', 'auto');
+    const matchMode = cfg.get<'anchored'|'smart'|'substring'>('regex.matchMode', 'smart');
     const code = detectDialect(text, configured);
     const dialect = getDialect(code);
     const stepRe = buildStepKeywordRegex(dialect);
@@ -199,7 +227,7 @@ export class StepIndexManager {
         let anyAmb = false;
         for (const row of oc.examples) {
           const resolved = resolvePlaceholders(body, row);
-          const matches = this.matchStep(index.steps, kind, resolved);
+          const matches = this.matchStep(index.steps, kind, resolved, matchMode);
           if (matches.length > 1) anyAmb = true;
           if (matches.length >= 1) anyOk = true;
         }
@@ -213,7 +241,7 @@ export class StepIndexManager {
           diags.push(d);
         }
       } else {
-        const matches = this.matchStep(index.steps, kind, body);
+        const matches = this.matchStep(index.steps, kind, body, matchMode);
         if (matches.length === 0) {
           const d = new vscode.Diagnostic(new vscode.Range(i, 0, i, line.length), 'Undefined step', vscode.DiagnosticSeverity.Warning);
           d.source = 'CukeRust';
@@ -228,20 +256,23 @@ export class StepIndexManager {
     this.diag.set(doc.uri, diags);
   }
 
-  matchStep(steps: StepEntry[], kind: 'Given' | 'When' | 'Then', body: string): StepEntry[] {
+  matchStep(steps: StepEntry[], kind: 'Given' | 'When' | 'Then', body: string, mode?: 'anchored'|'smart'|'substring'): StepEntry[] {
     const norm = body.trim();
     const results: StepEntry[] = [];
-    const folder = vscode.workspace.getWorkspaceFolder(vscode.window.activeTextEditor?.document?.uri ?? vscode.Uri.file(''));
-    const mode = vscode.workspace.getConfiguration('cukerust', folder ?? undefined).get<'anchored'|'smart'|'substring'>('regex.matchMode', 'smart');
+    let m = mode;
+    if (!m) {
+      const folder = vscode.workspace.getWorkspaceFolder(vscode.window.activeTextEditor?.document?.uri ?? vscode.Uri.file(''));
+      m = vscode.workspace.getConfiguration('cukerust', folder ?? undefined).get<'anchored'|'smart'|'substring'>('regex.matchMode', 'smart');
+    }
     for (const s of steps) {
       if (s.kind !== kind) continue;
       try {
         let pattern = s.regex;
-        if (mode === 'anchored') {
+        if (m === 'anchored') {
           pattern = s.regex;
           if (!pattern.startsWith('^')) pattern = '^' + pattern;
           if (!pattern.endsWith('$')) pattern = pattern + '$';
-        } else if (mode === 'smart') {
+        } else if (m === 'smart') {
           const anchored = s.regex.startsWith('^') || s.regex.endsWith('$');
           pattern = anchored ? s.regex : `^${s.regex}$`;
         } else {
@@ -298,6 +329,9 @@ export class StepIndexManager {
   }
   clearAmbiguityChoices() {
     this.ambiguityMemory.clear();
+  }
+  hasAmbiguityChoices(): boolean {
+    return this.ambiguityMemory.size > 0;
   }
 
   // Watchers to debounce rebuilds on Rust file changes

@@ -1,18 +1,23 @@
 {
-  "name": "@cukerust/extension",
+  "name": "cukerust",
   "displayName": "CukeRust",
   "description": "Zero‑config Gherkin × Rust BDD for VS Code",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
-  "publisher": "your-publisher",
+  "publisher": "Veighnsche",
   "license": "MIT OR Apache-2.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/your-org/cukerust.git"
   },
+  "homepage": "https://github.com/your-org/cukerust",
+  "bugs": { "url": "https://github.com/your-org/cukerust/issues" },
   "engines": { "vscode": "^1.92.0" },
-  "categories": ["Other"],
+  "categories": ["Programming Languages", "Testing", "Other"],
   "main": "./out/extension.js",
+  "icon": "images/LOGO.png",
+  "galleryBanner": { "color": "#111111", "theme": "dark" },
+  "keywords": ["gherkin", "cucumber", "bdd", "rust", "testing", "feature", "steps"],
   "activationEvents": [
     "onLanguage:feature",
     "onCommand:cukerust.rebuildIndex",
@@ -151,5 +156,5 @@
     "vitest": "^2.0.0",
     "mocha": "^10.2.0"
   },
-  "files": ["out/**", "native/**"]
+  "files": ["out/**", "native/**", "images/**", "README.md", "CHANGELOG.md", "LICENSE*"]
 }

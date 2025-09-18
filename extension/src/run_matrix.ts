@@ -1,5 +1,4 @@
 import * as vscode from 'vscode';
-import * as path from 'node:path';
 
 export async function resolveRunCommand(
   folder: vscode.WorkspaceFolder | null | undefined,
@@ -59,5 +58,6 @@ function shellQuote(s: string): string {
   }
   if (s === '') return "''";
   if (/^[A-Za-z0-9_@%+=:,./-]+$/.test(s)) return s;
-  return `'${s.replaceAll("'", `"'"'"`)}`;
+  // POSIX-safe single-quote wrapping: end quote, insert '"'"'', reopen quote
+  return `'${s.replace(/'/g, `"'"'`)}'`;
 }

@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { StepIndexManager } from './indexer';
 import { detectDialect, getDialect, buildStepKeywordRegex, extractOutlineContext, resolvePlaceholders } from './gherkin';
 import { resolveRunCommand } from './run_matrix';
+import { toSnippet, shellQuote } from './utils';
 
 export function activate(context: vscode.ExtensionContext) {
   const manager = new StepIndexManager(context);
@@ -145,7 +146,23 @@ export function activate(context: vscode.ExtensionContext) {
   // Config/status updates
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration('cukerust')) refreshStatusBar(status, manager);
+      if (e.affectsConfiguration('cukerust')) {
+        refreshStatusBar(status, manager);
+        // Rebuild indexes when discovery-related settings change
+        if (
+          e.affectsConfiguration('cukerust.discovery.mode') ||
+          e.affectsConfiguration('cukerust.index.path') ||
+          e.affectsConfiguration('cukerust.ignoreGlobs') ||
+          e.affectsConfiguration('cukerust.runtimeList.command')
+        ) {
+          void manager.rebuildAll().then(async () => {
+            for (const doc of vscode.workspace.textDocuments) {
+              await manager.refreshDiagnostics(doc);
+            }
+            refreshStatusBar(status, manager);
+          });
+        }
+      }
     }),
   );
 
@@ -233,6 +250,8 @@ export function activate(context: vscode.ExtensionContext) {
       {
         provideCompletionItems(doc, position) {
           const folder = vscode.workspace.getWorkspaceFolder(doc.uri);
+          const enabled = vscode.workspace.getConfiguration('cukerust', folder ?? undefined).get<boolean>('completion.enabled', true);
+          if (!enabled) return [];
           const index = manager.getIndex(folder ?? null);
           if (!index) return [];
           const items: vscode.CompletionItem[] = [];
@@ -330,18 +349,6 @@ export function activate(context: vscode.ExtensionContext) {
 
 export function deactivate() {}
 
-export function toSnippet(regex: string): string {
-  // Basic conversion: (\d+) -> ${1:number}; (.+) -> ${1:value}
-  let idx = 1;
-  return regex
-    .replace(/\^|\$/g, '')
-    // Replace grouped numeric captures first to drop parentheses
-    .replace(/\(\\d\+\)/g, () => `${'${'}${idx++}:number}`)
-    .replace(/\(\.\+\)/g, () => `${'${'}${idx++}:value}`)
-    // Fallback: bare \\d+ occurrences
-    .replace(/\\d\+/g, () => `${'${'}${idx++}:number}`);
-}
-
 class ScenarioCodeLensProvider implements vscode.CodeLensProvider {
   provideCodeLenses(doc: vscode.TextDocument): vscode.ProviderResult<vscode.CodeLens[]> {
     const lenses: vscode.CodeLens[] = [];
@@ -370,19 +377,6 @@ function extractScenarioName(doc: vscode.TextDocument, line: number): string | u
   return undefined;
 }
 
-function shellQuote(s: string): string {
-  // Cross-shell best-effort quoting
-  if (process.platform === 'win32') {
-    // Use double quotes and escape internal quotes
-    const q = s.replace(/"/g, '""');
-    return `"${q}"`;
-  }
-  // POSIX-like quoting
-  if (s === '') return "''";
-  if (/^[A-Za-z0-9_@%+=:,./-]+$/.test(s)) return s; // safe
-  return `'${s.replace(/'/g, `'"'"'`)}'`;
-}
-
 function refreshStatusBar(status: vscode.StatusBarItem, manager: StepIndexManager) {
   const folders = vscode.workspace.workspaceFolders ?? [];
   const active = vscode.window.activeTextEditor?.document;
@@ -392,5 +386,6 @@ function refreshStatusBar(status: vscode.StatusBarItem, manager: StepIndexManage
   const ms = manager.getLastBuildMs(folder ?? null);
   const msText = ms ? ` ${ms}ms` : '';
   status.text = `CukeRust: ${String(mode)}${stale}${msText}`;
+  status.command = manager.hasAmbiguityChoices() ? 'cukerust.clearAmbiguityMemory' : 'cukerust.rebuildStatic';
   if (vscode.workspace.getConfiguration('cukerust', folder ?? undefined).get<boolean>('statusbar.showMode', true)) status.show(); else status.hide();
 }

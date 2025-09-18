@@ -1,0 +1,17 @@
+{
+  "folders": [
+    { "path": "../extension/test-fixtures/basic" }
+  ],
+  "settings": {
+    "cukerust.discovery.mode": "auto",
+    "cukerust.index.path": "docs/cukerust/step_index.json",
+    "cukerust.runMatrix.path": "docs/cukerust/run_matrix.md",
+    "editor.formatOnSave": true
+  },
+  "extensions": {
+    "recommendations": [
+      "Veighnsche.cukerust",
+      "rust-lang.rust-analyzer"
+    ]
+  }
+}
