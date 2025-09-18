@@ -293,3 +293,97 @@ fn resolve_placeholders<'a>(body: &str, row: &std::collections::HashMap<&'a str,
         row.get(name).cloned().unwrap_or_else(|| format!("<{}>", name))
     }).to_string()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cukerust_core::step_index as core;
+
+    fn step(kind: core::StepKind, regex: &str, file: &str, line: usize) -> core::StepEntry {
+        core::StepEntry { kind, regex: regex.into(), file: file.into(), line, function: None, captures: None, tags: None, notes: None }
+    }
+
+    #[test]
+    fn test_pattern_for_mode() {
+        assert_eq!(pattern_for_mode("a", "anchored").unwrap(), "^a$");
+        assert_eq!(pattern_for_mode("^a$", "anchored").unwrap(), "^a$");
+        assert_eq!(pattern_for_mode("a", "smart").unwrap(), "^a$");
+        assert_eq!(pattern_for_mode("^a$", "smart").unwrap(), "^a$");
+        assert_eq!(pattern_for_mode("a", "substring").unwrap(), "a");
+    }
+
+    #[test]
+    fn test_match_one_basic() {
+        let steps = vec![
+            step(core::StepKind::Given, r"^I have (\d+) cukes$", "src/steps.rs", 10),
+            step(core::StepKind::When, r"I eat (.+)", "src/steps.rs", 20),
+            step(core::StepKind::Then, r"^done$", "src/steps.rs", 30),
+        ];
+        let m = match_one(&steps, core::StepKind::Given, "I have 5 cukes", "anchored");
+        assert_eq!(m.len(), 1);
+        assert_eq!(m[0].line, 10);
+        let m2 = match_one(&steps, core::StepKind::When, "I eat apples", "smart");
+        assert_eq!(m2.len(), 1);
+        assert_eq!(m2[0].line, 20);
+        let m3 = match_one(&steps, core::StepKind::Given, "done", "anchored");
+        assert!(m3.is_empty());
+    }
+
+    #[test]
+    fn test_diagnostics_basic_and_outline() {
+        let steps = vec![
+            step(core::StepKind::Given, r"^I have (\d+) cukes$", "src/steps.rs", 10),
+            step(core::StepKind::Then, r"^done$", "src/steps.rs", 30),
+        ];
+        let feature = r#"Feature: Sample
+  Scenario: Basic
+    Given I have 5 cukes
+    Then done
+
+  Scenario Outline: Out
+    Given I have <n> cukes
+  Examples:
+    | n |
+    | 1 |
+    | 2 |
+"#;
+        let input = serde_json::json!({
+            "feature_text": feature,
+            "config": { "dialect": "en", "match_mode": "smart" },
+            "steps": steps,
+        }).to_string();
+        let out = diagnostics_for_feature(&input);
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        let diags = v.get("diags").and_then(|d| d.as_array()).cloned().unwrap_or_default();
+        // No diagnostics expected
+        assert!(diags.is_empty(), "expected no diagnostics, got {:?}", diags);
+    }
+
+    #[test]
+    fn test_diagnostics_undefined_and_ambiguous() {
+        // Duplicate Given step causes ambiguity
+        let steps = vec![
+            step(core::StepKind::Given, r"^I have (\d+) cukes$", "src/steps.rs", 10),
+            step(core::StepKind::Given, r"^I have (\d+) cukes$", "src/steps.rs", 11),
+            step(core::StepKind::Then, r"^done$", "src/steps.rs", 30),
+        ];
+        let feature = r#"Feature: Sample
+  Scenario: Ambiguous and undefined
+    Given I have 5 cukes
+    When I do a thing
+    Then done
+"#;
+        let input = serde_json::json!({
+            "feature_text": feature,
+            "config": { "dialect": "en", "match_mode": "smart" },
+            "steps": steps,
+        }).to_string();
+        let out = diagnostics_for_feature(&input);
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        let diags = v.get("diags").and_then(|d| d.as_array()).cloned().unwrap_or_default();
+        // Expect at least 1 ambiguous (Given) and 1 undefined (When)
+        let msgs: Vec<String> = diags.iter().map(|d| d.get("message").and_then(|m| m.as_str()).unwrap_or("").to_string()).collect();
+        assert!(msgs.iter().any(|m| m.contains("Ambiguous step")), "no ambiguous diag in {:?}", msgs);
+        assert!(msgs.iter().any(|m| m.contains("Undefined step")), "no undefined diag in {:?}", msgs);
+    }
+}

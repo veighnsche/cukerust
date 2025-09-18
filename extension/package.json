@@ -170,10 +170,13 @@
     "build:wasm": "wasm-pack build ../rust/crates/cukerust_wasm --target nodejs --release --out-dir ../../../extension/native/cukerust-wasm",
     "build:ts": "tsup src/extension.ts src/test/runTest.ts src/test/suite/runner.ts src/test/suite/extension.test.ts --format=cjs --out-dir out --external vscode --external mocha",
     "build": "npm run build:wasm && npm run build:ts",
+    "vscode:prepublish": "npm run build",
     "test": "npm run build:wasm && vitest run",
     "test:int": "npm run build:wasm && node ./out/test/runTest.js",
     "lint": "eslint .",
-    "package": "vsce package"
+    "package": "vsce package",
+    "publish:ovsx": "ovsx publish -p $OVSX_PAT",
+    "package:ovsx": "ovsx package"
   },
   "devDependencies": {
     "tsup": "^8.0.0",
