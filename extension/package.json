@@ -26,7 +26,10 @@
     "onCommand:cukerust.dev.matchBenchmark",
     "onCommand:cukerust.runScenario",
     "onCommand:cukerust.clearAmbiguityMemory",
-    "onCommand:cukerust.listStepsViaRunner"
+    "onCommand:cukerust.listStepsViaRunner",
+    "onCommand:cukerust.openOutput",
+    "onCommand:cukerust.openHealthReport",
+    "onCommand:cukerust.quickStart"
   ],
   "contributes": {
     "languages": [
@@ -34,6 +37,13 @@
         "id": "feature",
         "aliases": ["Gherkin", "feature"],
         "extensions": [".feature"]
+      }
+    ],
+    "grammars": [
+      {
+        "language": "feature",
+        "scopeName": "source.gherkin",
+        "path": "./syntaxes/gherkin.tmLanguage.json"
       }
     ],
     "commands": [
@@ -64,6 +74,18 @@
       {
         "command": "cukerust.listStepsViaRunner",
         "title": "CukeRust: List Steps via Runner"
+      },
+      {
+        "command": "cukerust.openOutput",
+        "title": "CukeRust: Open Output"
+      },
+      {
+        "command": "cukerust.openHealthReport",
+        "title": "CukeRust: Open Health Report"
+      },
+      {
+        "command": "cukerust.quickStart",
+        "title": "CukeRust: Quick Start (Create Sample Feature)"
       }
     ],
     "configuration": {
@@ -156,5 +178,5 @@
     "vitest": "^2.0.0",
     "mocha": "^10.2.0"
   },
-  "files": ["out/**", "native/**", "images/**", "README.md", "CHANGELOG.md", "LICENSE*"]
+  "files": ["out/**", "native/**", "images/**", "syntaxes/**", "README.md", "CHANGELOG.md", "LICENSE*"]
 }
