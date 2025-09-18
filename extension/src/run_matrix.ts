@@ -1,4 +1,6 @@
 import * as vscode from 'vscode';
+import { extractRunBlocks } from './core/run_matrix';
+import { shellQuote } from './utils';
 
 export async function resolveRunCommand(
   folder: vscode.WorkspaceFolder | null | undefined,
@@ -32,32 +34,4 @@ function fill(template: string, featurePath: string, scenarioName: string, tags:
     .replaceAll('${featurePath}', shellQuote(featurePath))
     .replaceAll('${scenarioName}', shellQuote(scenarioName))
     .replaceAll('${tags}', shellQuote(tags));
-}
-
-function extractRunBlocks(text: string): Record<string, string> {
-  const map: Record<string, string> = {};
-  const re = /```run\n([\s\S]*?)```/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(text))) {
-    const body = m[1];
-    const lines = body.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
-    for (const line of lines) {
-      const mm = /^(suite|feature:[^\s]+|scenario:.+?):\s*(.+)$/.exec(line);
-      if (mm) {
-        map[mm[1]] = mm[2];
-      }
-    }
-  }
-  return map;
-}
-
-function shellQuote(s: string): string {
-  if (process.platform === 'win32') {
-    const q = s.replace(/"/g, '""');
-    return `"${q}"`;
-  }
-  if (s === '') return "''";
-  if (/^[A-Za-z0-9_@%+=:,./-]+$/.test(s)) return s;
-  // POSIX-safe single-quote wrapping: end quote, insert '"'"'', reopen quote
-  return `'${s.replace(/'/g, `"'"'`)}'`;
 }

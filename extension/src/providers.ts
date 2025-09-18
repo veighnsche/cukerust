@@ -2,11 +2,25 @@ import * as vscode from 'vscode';
 import { StepIndexManager } from './indexer';
 import { detectDialect, getDialect, buildStepKeywordRegex, extractOutlineContext, resolvePlaceholders } from './gherkin';
 import { toSnippet } from './utils';
+import { registerDefinitionProvider } from './providers/definition';
+import { registerCompletionProvider } from './providers/completion';
+import { registerHoverProvider } from './providers/hover';
+import { registerDocumentLinkProvider } from './providers/documentLinks';
+import { registerScenarioCodeLensProvider } from './providers/codeLens';
 
 export function registerProviders(
   context: vscode.ExtensionContext,
   manager: StepIndexManager,
 ) {
+  // Modular providers aggregator (preferred)
+  context.subscriptions.push(
+    registerDefinitionProvider(context, manager),
+    registerCompletionProvider(context, manager),
+    registerHoverProvider(context, manager),
+    registerDocumentLinkProvider(context, manager),
+    registerScenarioCodeLensProvider(context),
+  );
+  return; // short-circuit legacy inline implementation below
   // Go-to-definition
   const ds: vscode.DocumentSelector = [
     { language: 'feature' },
